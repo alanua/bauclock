@@ -1,0 +1,130 @@
+import enum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Enum
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
+from db.security import encrypt_string, decrypt_string, hash_string
+
+Base = declarative_base()
+
+class WorkerType(str, enum.Enum):
+    FESTANGESTELLT = "FESTANGESTELLT"
+    MINIJOB = "MINIJOB"
+    GEWERBE = "GEWERBE"
+    SUBUNTERNEHMER = "SUBUNTERNEHMER"
+
+class BillingType(str, enum.Enum):
+    HOURLY = "HOURLY"
+    FIXED = "FIXED"
+
+class EventType(str, enum.Enum):
+    CHECKIN = "CHECKIN"
+    PAUSE_START = "PAUSE_START"
+    PAUSE_END = "PAUSE_END"
+    CHECKOUT = "CHECKOUT"
+
+class PaymentStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+    DISPUTED = "DISPUTED"
+
+class LanguageSupport(str, enum.Enum):
+    DE = "de"
+    UK = "uk"
+
+class Company(Base):
+    __tablename__ = "companies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    owner_telegram_id_enc = Column(String, nullable=False)
+    owner_telegram_id_hash = Column(String, nullable=False, index=True)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    website = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    sites = relationship("Site", back_populates="company")
+    workers = relationship("Worker", back_populates="company")
+
+class Site(Base):
+    __tablename__ = "sites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    address = Column(String)
+    qr_token = Column(String, unique=True, index=True)
+    is_active = Column(Boolean, default=True)
+    
+    # GPS validation properties
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
+    radius_m = Column(Float, nullable=True)
+
+    company = relationship("Company", back_populates="sites")
+    workers = relationship("Worker", back_populates="site")
+
+class Worker(Base):
+    __tablename__ = "workers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
+    
+    # Security properties
+    telegram_id_enc = Column(String, nullable=False)
+    telegram_id_hash = Column(String, nullable=False, index=True)
+    full_name_enc = Column(String, nullable=False)
+    
+    # Business logic
+    worker_type = Column(Enum(WorkerType), nullable=False)
+    billing_type = Column(Enum(BillingType), nullable=False)
+    hourly_rate = Column(Float, nullable=True)
+    contract_hours_month = Column(Float, nullable=True)
+    
+    # App logic
+    language = Column(Enum(LanguageSupport), default=LanguageSupport.DE)
+    can_view_dashboard = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+    gdpr_consent_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_by = Column(Integer, ForeignKey("workers.id"), nullable=True)
+
+    company = relationship("Company", back_populates="workers")
+    site = relationship("Site", back_populates="workers")
+    time_events = relationship("TimeEvent", back_populates="worker")
+    payments = relationship("Payment", back_populates="worker", foreign_keys="Payment.worker_id")
+
+class TimeEvent(Base):
+    __tablename__ = "time_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
+    event_type = Column(Enum(EventType), nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Event location properties
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
+    gps_accuracy_m = Column(Float, nullable=True)
+    is_suspicious = Column(Boolean, default=False)
+
+    worker = relationship("Worker", back_populates="time_events")
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
+    period_start = Column(DateTime(timezone=True), nullable=False)
+    period_end = Column(DateTime(timezone=True), nullable=False)
+    hours_paid = Column(Float, nullable=False)
+    amount_paid = Column(Float, nullable=False)
+    status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    created_by = Column(Integer, ForeignKey("workers.id"), nullable=True)
+
+    worker = relationship("Worker", back_populates="payments", foreign_keys=[worker_id])

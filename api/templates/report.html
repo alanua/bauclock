@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Wochenbericht</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        h1 { color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+        th { background-color: #f4f4f4; }
+        .green { color: green; font-weight: bold; }
+        .red { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Baustellenbericht</h1>
+    <p><strong>Zeitraum:</strong> {{ start_date }} - {{ end_date }}</p>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Mitarbeiter</th>
+                <th>Stunden</th>
+                <th>Lohn (€/h)</th>
+                <th>Gesamt (€)</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in workers %}
+            <tr>
+                <td>{{ w.name }}</td>
+                <td>{{ w.hours | round(2) }}h</td>
+                <td>€{{ "%.2f"|format(w.rate) }}</td>
+                <td>€{{ "%.2f"|format(w.amount) }}</td>
+                <td>
+                    <span class="{% if 'CONFIRMED' in w.status %}green{% else %}red{% endif %}">
+                        {{ w.status }}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
