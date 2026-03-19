@@ -1,107 +1,62 @@
-import base64
+"""
+PDF generation for bot - creates a simple PNG poster instead of PDF
+to avoid WeasyPrint system dependencies in bot container.
+"""
 from io import BytesIO
-from weasyprint import HTML
-from bot.utils.qr import generate_qr_code
+from PIL import Image, ImageDraw, ImageFont
+import qrcode
 
-def generate_site_pdf(company_name: str, site_name: str, site_address: str, qr_link: str) -> BytesIO:
+def generate_site_pdf(qr_url: str, company_name: str, site_name: str, site_address: str = "") -> bytes:
     """
-    Generates a print-ready A4 PDF with the site QR code and branding.
+    Generates a printable PNG poster with QR code and site info.
+    Returns PNG bytes (not PDF, but printable A4-like image).
     """
-    # Generate QR code image
-    qr_bio = generate_qr_code(qr_link)
-    qr_base64 = base64.b64encode(qr_bio.getvalue()).decode('utf-8')
+    # A4 at 150 DPI
+    width, height = 1240, 1754
+    img = Image.new("RGB", (width, height), color="white")
+    draw = ImageDraw.Draw(img)
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="de">
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            @page {{
-                size: A4;
-                margin: 2cm;
-            }}
-            body {{
-                font-family: 'Helvetica', 'Arial', sans-serif;
-                color: #333;
-                text-align: center;
-                margin: 0;
-                padding: 0;
-            }}
-            .header {{
-                margin-bottom: 50px;
-            }}
-            .company-name {{
-                font-size: 24px;
-                font-weight: bold;
-                color: #2c3e50;
-                margin-bottom: 10px;
-            }}
-            .site-info {{
-                font-size: 18px;
-                color: #7f8c8d;
-                margin-bottom: 40px;
-            }}
-            .qr-container {{
-                margin: 50px 0;
-            }}
-            .qr-code {{
-                width: 300px;
-                height: 300px;
-            }}
-            .instruction {{
-                font-size: 22px;
-                font-weight: bold;
-                color: #e67e22;
-                margin-top: 30px;
-            }}
-            .branding {{
-                position: absolute;
-                bottom: 0;
-                width: 100%;
-                font-size: 14px;
-                color: #bdc3c7;
-                border-top: 1px solid #eee;
-                padding-top: 10px;
-            }}
-            .logo {{
-                font-size: 28px;
-                font-weight: 900;
-                color: #2c3e50;
-                letter-spacing: -1px;
-            }}
-            .logo span {{
-                color: #e67e22;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <div class="logo">SEK <span>Zeiterfassung</span></div>
-        </div>
-        
-        <div class="company-name">{company_name}</div>
-        <div class="site-info">
-            <strong>{site_name}</strong><br>
-            {site_address or ''}
-        </div>
+    # Generate QR code
+    qr = qrcode.QRCode(box_size=10, border=4)
+    qr.add_data(qr_url)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+    qr_size = 600
+    qr_img = qr_img.resize((qr_size, qr_size))
+    qr_x = (width - qr_size) // 2
+    img.paste(qr_img, (qr_x, 200))
 
-        <div class="qr-container">
-            <img src="data:image/png;base64,{qr_base64}" class="qr-code" alt="QR Code">
-        </div>
+    # Text
+    try:
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
+        font_med = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
+    except Exception:
+        font_large = ImageFont.load_default()
+        font_med = font_large
+        font_small = font_large
 
-        <div class="instruction">
-            Scan mit Telegram für Zeiterfassung
-        </div>
+    # Title
+    draw.text((width//2, 100), "SEK Zeiterfassung", font=font_large, fill="#1A56DB", anchor="mm")
 
-        <div class="branding">
-            SEK Zeiterfassung - Die moderne Lösung für Baustellen
-        </div>
-    </body>
-    </html>
-    """
-    
-    pdf_bio = BytesIO()
-    HTML(string=html_content).write_pdf(pdf_bio)
-    pdf_bio.seek(0)
-    return pdf_bio
+    # Site name
+    draw.text((width//2, 870), site_name, font=font_large, fill="#0D0D0D", anchor="mm")
+
+    # Address
+    if site_address:
+        draw.text((width//2, 960), site_address, font=font_med, fill="#555555", anchor="mm")
+
+    # Company
+    draw.text((width//2, 1060), company_name, font=font_med, fill="#333333", anchor="mm")
+
+    # Instruction
+    draw.text((width//2, 1200), "Scan mit Telegram für Zeiterfassung", font=font_small, fill="#888888", anchor="mm")
+    draw.text((width//2, 1250), "Скануйте через Telegram для обліку часу", font=font_small, fill="#888888", anchor="mm")
+
+    # Border
+    draw.rectangle([(40, 40), (width-40, height-40)], outline="#1A56DB", width=4)
+
+    buf = BytesIO()
+    img.save(buf, format="PNG", dpi=(150, 150))
+    buf.seek(0)
+    return buf.read()
