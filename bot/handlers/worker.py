@@ -142,26 +142,16 @@ async def cmd_start_site(message: Message, state: FSMContext, session: AsyncSess
 
     # Handle unknown user (not registered in DB)
     if not current_worker or not current_worker.is_active:
-        # Fetch company info
-        company = await session.get(Company, site.company_id)
-        
-        # Neutral and professional message in DE and UK
-        text_de = (
-            f"ℹ️ Baustelle: {site.name}\n"
-            f"📍 {site.address or 'Keine Adresse hinterlegt'}\n"
-            f"🏗 {company.name}\n"
-            f"📞 {company.phone or 'Keine Telefonnummer hinterlegt'}"
+        await message.answer(
+            "🏗 Generalbau S.E.K. GmbH\n"
+            "Wir bauen Zukunft – Stein auf Stein.\n\n"
+            "Generalbau · Trockenbau · Putz & Maler · Dämmung\n\n"
+            "📍 Am Industriegelände 3\n"
+            "14772 Brandenburg an der Havel\n"
+            "🌐 generalbau-sek.de"
         )
-        text_uk = (
-            f"ℹ️ Об'єкт: {site.name}\n"
-            f"📍 {site.address or 'Адреса відсутня'}\n"
-            f"🏗 {company.name}\n"
-            f"📞 {company.phone or 'Телефон відсутній'}"
-        )
-        
-        await message.answer(text_de)
-        await message.answer(text_uk)
         return
+
         
     # Check rate limits (Max 10 scans per worker per day)
     today = datetime.now(timezone.utc).date()

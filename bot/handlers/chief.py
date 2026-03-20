@@ -48,6 +48,12 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         await message.answer(text)
         return
 
+    # If already a worker:
+    if current_worker:
+        text = "Willkommen zurück bei SEK Zeiterfassung! Nutzen Sie /dashboard für eine Übersicht oder /add_worker um Mitarbeiter hinzuzufügen." if locale == "de" else "Ласкаво просимо назад! Використовуйте /dashboard або /add_worker."
+        await message.answer(text)
+        return
+
     # Check if this user is already a company owner who somehow doesn't have a Worker record
     tg_hash = hash_string(str(message.from_user.id))
     stmt = select(Company).where(Company.owner_telegram_id_hash == tg_hash)
@@ -59,48 +65,16 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         await message.answer(text)
         return
 
-    # Not registered. Ask for phone number to check if it's the owner.
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📱 Teilen Sie Ihre Telefonnummer", request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
+    # Unknown user
+    await message.answer(
+        "🏗 Generalbau S.E.K. GmbH\n"
+        "Wir bauen Zukunft – Stein auf Stein.\n\n"
+        "Generalbau · Trockenbau · Putz & Maler · Dämmung\n\n"
+        "📍 Am Industriegelände 3\n"
+        "14772 Brandenburg an der Havel\n"
+        "🌐 generalbau-sek.de"
     )
-    text = (
-        "Willkommen bei SEK Zeiterfassung!\n\n"
-        "Bitte teilen Sie Ihre Telefonnummer zur Verifizierung."
-    ) if locale == "de" else (
-        "Ласкаво просимо до SEK Zeiterfassung!\n\n"
-        "Будь ласка, поділіться своїм номером телефону для перевірки."
-    )
-    
-    await message.answer(text, reply_markup=kb)
-    await state.set_state(ChiefRegistrationStates.waiting_for_owner_phone)
-
-@router.message(ChiefRegistrationStates.waiting_for_owner_phone, F.contact)
-async def process_owner_phone(message: Message, state: FSMContext, session: AsyncSession, locale: str):
-    contact = message.contact
-    phone = contact.phone_number
-    if not phone.startswith('+'):
-        phone = '+' + phone
-
-    if phone == bot_config.OWNER_PHONE:
-        text = (
-            "Verifizierung erfolgreich! Sie sind der System-Owner (Waldemar).\n\n"
-            "Bitte geben Sie zuerst den Namen Ihres Unternehmens ein:"
-        ) if locale == "de" else (
-            "Успішна перевірка! Ви власник системи.\n\n"
-            "Будь ласка, введіть назву вашої компанії:"
-        )
-        await message.answer(text, reply_markup=ReplyKeyboardRemove())
-        await state.set_state(ChiefRegistrationStates.waiting_for_company_name)
-    else:
-        text = (
-            "Dies ist das private Zeiterfassungssystem der SEK Bau. Zugriff nur für registrierte Mitarbeiter."
-        ) if locale == "de" else (
-            "Це приватна система обліку часу SEK Bau. Доступ лише для зареєстрованих працівників."
-        )
-        await message.answer(text, reply_markup=ReplyKeyboardRemove())
-        await state.clear()
+    return
 
 @router.message(ChiefRegistrationStates.waiting_for_company_name)
 async def process_company_name(message: Message, state: FSMContext, session: AsyncSession, locale: str):

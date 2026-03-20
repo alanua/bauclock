@@ -136,7 +136,7 @@ class Payment(Base):
     hours_paid = Column(Float, nullable=False)
     amount_paid = Column(Float, nullable=False)
     status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING)
-    payment_type = Column(Enum(PaymentType), default=PaymentType.OVERTIME)
+    payment_type = Column(String(20), default="OVERTIME")
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     
     created_by = Column(Integer, ForeignKey("workers.id"), nullable=True)
