@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./bauclock.db"
     APP_URL: str = "http://localhost:8000"
     BOT_USERNAME: str = "SEKbaubot"
+    OWNER_PHONE: str = "+49176807279824"
     
     class Config:
         env_file = ".env"

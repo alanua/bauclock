@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./bauclock.db"
     BOT_USERNAME: str = "SEKbaubot"
     ENCRYPTION_KEY: str
+    OWNER_PHONE: str = "+49176807279824"
     
     # We load this locally if not provided in env for local tests
     class Config:

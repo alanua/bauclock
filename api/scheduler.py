@@ -48,7 +48,8 @@ async def check_arbzg_pauses():
                 if worked_hours > 9.0 and total_pause_m < 45:
                     try:
                         tg_id = int(decrypt_string(w.telegram_id_enc))
-                        msg = "KRITISCH ArbZG §4: Sie arbeiten über 9 Stunden ohne 45 Min. Pause!" if w.language.value == "de" else "КРИТИЧНО: Понад 9 годин без 45 хв паузи!"
+                        from bot.i18n.translations import t
+                        msg = f"KRITISCH: {t('arbzg_warning', w.language.value)}"
                         await send_telegram_message(tg_id, msg, settings.BOT_TOKEN)
                     except Exception:
                         pass
@@ -64,7 +65,8 @@ async def check_arbzg_pauses():
                 elif worked_hours > 6.0 and total_pause_m < 30:
                     try:
                         tg_id = int(decrypt_string(w.telegram_id_enc))
-                        msg = "Achtung ArbZG §4: Sie arbeiten über 6 Stunden ohne 30 Min. Pause!" if w.language.value == "de" else "Увага: Понад 6 годин без 30 хв паузи!"
+                        from bot.i18n.translations import t
+                        msg = f"{t('arbzg_warning', w.language.value)}"
                         await send_telegram_message(tg_id, msg, settings.BOT_TOKEN)
                     except Exception:
                         pass
@@ -84,7 +86,8 @@ async def warn_unclosed_days_1800():
             if last_event and last_event.event_type != EventType.CHECKOUT:
                 try:
                     tg_id = int(decrypt_string(w.telegram_id_enc))
-                    msg = "Erinnerung: Ihr Arbeitstag ist noch nicht beendet." if w.language.value == "de" else "Нагадування: Робочий день ще не завершено."
+                    from bot.i18n.translations import t
+                    msg = t("day_not_closed", w.language.value)
                     await send_telegram_message(tg_id, msg, settings.BOT_TOKEN)
                 except Exception as e:
                     logger.error(f"Failed to send 18:00 alert to {w.id}: {e}")

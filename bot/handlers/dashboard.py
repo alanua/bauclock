@@ -149,8 +149,8 @@ async def process_my_hours(callback: CallbackQuery, current_worker: Worker, sess
     rate = current_worker.hourly_rate or 0.0
     
     if current_worker.worker_type.value == "FESTANGESTELLT":
-        con_m = current_worker.contract_hours_month or 0.0
-        con_w = con_m / 4.0
+        con_w = current_worker.contract_hours_week or 0.0
+        con_m = con_w * 4.0
         
         green_w_h = min(total_w, con_w)
         red_w_h = max(0.0, total_w - con_w)
@@ -242,7 +242,8 @@ async def process_payment_confirm(callback: CallbackQuery, current_worker: Worke
     session.add(payment)
     await session.commit()
     
-    text = "Zahlung bestätigt! Vielen Dank." if locale == "de" else "Платіж підтверджено! Дякуємо."
+    from bot.i18n.translations import t
+    text = t("payment_confirmed", locale)
     await callback.message.edit_text(text, reply_markup=get_dashboard_main_kb(False, locale))
     await callback.answer()
 
@@ -261,7 +262,8 @@ async def process_payment_dispute(callback: CallbackQuery, state: FSMContext, cu
     
     await state.update_data(disputed_payment_id=payment.id)
     
-    text = "Zahlung reklamiert. Bitte schreiben Sie uns den Grund für die Reklamation:" if locale == "de" else "Платіж відхилено. Будь ласка, напишіть причину:"
+    from bot.i18n.translations import t
+    text = t("payment_disputed", locale)
     await callback.message.edit_text(text)
     await state.set_state(DashboardStates.waiting_for_payment_dispute)
     

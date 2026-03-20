@@ -27,9 +27,22 @@ class PaymentStatus(str, enum.Enum):
     CONFIRMED = "CONFIRMED"
     DISPUTED = "DISPUTED"
 
+class PaymentType(str, enum.Enum):
+    CONTRACT = "CONTRACT"
+    OVERTIME = "OVERTIME"
+
 class LanguageSupport(str, enum.Enum):
     DE = "de"
     UK = "uk"
+    RO = "ro"
+    PL = "pl"
+    TR = "tr"
+    RU = "ru"
+    EN = "en"
+    BG = "bg"
+    SR = "sr"
+    # Note: Moldovan uses 'ro' usually, but keeping distinct if needed, or mapping both to ro.
+    OTHER = "other"
 
 class Company(Base):
     __tablename__ = "companies"
@@ -81,7 +94,7 @@ class Worker(Base):
     worker_type = Column(Enum(WorkerType), nullable=False)
     billing_type = Column(Enum(BillingType), nullable=False)
     hourly_rate = Column(Float, nullable=True)
-    contract_hours_month = Column(Float, nullable=True)
+    contract_hours_week = Column(Integer, nullable=True)
     
     # App logic
     language = Column(Enum(LanguageSupport), default=LanguageSupport.DE)
@@ -123,8 +136,36 @@ class Payment(Base):
     hours_paid = Column(Float, nullable=False)
     amount_paid = Column(Float, nullable=False)
     status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING)
+    payment_type = Column(Enum(PaymentType), default=PaymentType.OVERTIME)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     
     created_by = Column(Integer, ForeignKey("workers.id"), nullable=True)
 
     worker = relationship("Worker", back_populates="payments", foreign_keys=[worker_id])
+
+class MonthlyAdjustment(Base):
+    __tablename__ = "monthly_adjustments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
+    month = Column(DateTime(timezone=True), nullable=False)
+    adjustment_minutes = Column(Integer, nullable=False)
+    reason = Column(String(255), nullable=True)
+    created_by = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    worker = relationship("Worker", foreign_keys=[worker_id])
+
+class DailySummary(Base):
+    __tablename__ = "daily_summaries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
+    date = Column(DateTime(timezone=True), nullable=False)
+    worked_minutes = Column(Integer, default=0)
+    pause_minutes = Column(Integer, default=0)
+    contract_minutes = Column(Integer, default=0)
+    overtime_minutes = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    worker = relationship("Worker", foreign_keys=[worker_id])

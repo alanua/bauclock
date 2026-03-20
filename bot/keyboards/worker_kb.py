@@ -13,7 +13,15 @@ def get_gdpr_kb(locale: str) -> InlineKeyboardMarkup:
 def get_language_kb() -> InlineKeyboardMarkup:
     keys = [
         [InlineKeyboardButton(text="Deutsch 🇩🇪", callback_data="lang_de"),
-         InlineKeyboardButton(text="Українська 🇺🇦", callback_data="lang_uk")]
+         InlineKeyboardButton(text="Українська 🇺🇦", callback_data="lang_uk")],
+        [InlineKeyboardButton(text="Română 🇷🇴/🇲🇩", callback_data="lang_ro"),
+         InlineKeyboardButton(text="Polski 🇵🇱", callback_data="lang_pl")],
+        [InlineKeyboardButton(text="Türkçe 🇹🇷", callback_data="lang_tr"),
+         InlineKeyboardButton(text="Русский 🇷🇺", callback_data="lang_ru")],
+        [InlineKeyboardButton(text="English 🇬🇧", callback_data="lang_en"),
+         InlineKeyboardButton(text="Български 🇧🇬", callback_data="lang_bg")],
+        [InlineKeyboardButton(text="Srpski 🇷🇸", callback_data="lang_sr"),
+         InlineKeyboardButton(text="Other 🌐", callback_data="lang_other")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keys)
 

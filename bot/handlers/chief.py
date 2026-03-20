@@ -2,7 +2,7 @@ import uuid
 import json
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -59,17 +59,48 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         await message.answer(text)
         return
 
-    # Start Chief Registration
-    text = (
-        "Willkommen bei SEK Zeiterfassung! Ich bin Ihr Assistent für die digitale Zeiterfassung.\n\n"
-        "Waldemar (Inhaber) hat hier volle Kontrolle (OWNER).\n"
-        "Bitte geben Sie zuerst den Namen Ihres Unternehmens ein:"
-    ) if locale == "de" else (
-        "Ласкаво просимо до SEK Zeiterfassung! Я ваш помічник для цифрового обліку часу.\n\n"
-        "Будь ласка, введіть назву вашої компанії:"
+    # Not registered. Ask for phone number to check if it's the owner.
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📱 Teilen Sie Ihre Telefonnummer", request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
-    await message.answer(text)
-    await state.set_state(ChiefRegistrationStates.waiting_for_company_name)
+    text = (
+        "Willkommen bei SEK Zeiterfassung!\n\n"
+        "Bitte teilen Sie Ihre Telefonnummer zur Verifizierung."
+    ) if locale == "de" else (
+        "Ласкаво просимо до SEK Zeiterfassung!\n\n"
+        "Будь ласка, поділіться своїм номером телефону для перевірки."
+    )
+    
+    await message.answer(text, reply_markup=kb)
+    await state.set_state(ChiefRegistrationStates.waiting_for_owner_phone)
+
+@router.message(ChiefRegistrationStates.waiting_for_owner_phone, F.contact)
+async def process_owner_phone(message: Message, state: FSMContext, session: AsyncSession, locale: str):
+    contact = message.contact
+    phone = contact.phone_number
+    if not phone.startswith('+'):
+        phone = '+' + phone
+
+    if phone == bot_config.OWNER_PHONE:
+        text = (
+            "Verifizierung erfolgreich! Sie sind der System-Owner (Waldemar).\n\n"
+            "Bitte geben Sie zuerst den Namen Ihres Unternehmens ein:"
+        ) if locale == "de" else (
+            "Успішна перевірка! Ви власник системи.\n\n"
+            "Будь ласка, введіть назву вашої компанії:"
+        )
+        await message.answer(text, reply_markup=ReplyKeyboardRemove())
+        await state.set_state(ChiefRegistrationStates.waiting_for_company_name)
+    else:
+        text = (
+            "Dies ist das private Zeiterfassungssystem der SEK Bau. Zugriff nur für registrierte Mitarbeiter."
+        ) if locale == "de" else (
+            "Це приватна система обліку часу SEK Bau. Доступ лише для зареєстрованих працівників."
+        )
+        await message.answer(text, reply_markup=ReplyKeyboardRemove())
+        await state.clear()
 
 @router.message(ChiefRegistrationStates.waiting_for_company_name)
 async def process_company_name(message: Message, state: FSMContext, session: AsyncSession, locale: str):
@@ -234,7 +265,7 @@ async def process_worker_rate(message: Message, state: FSMContext, current_worke
     wtype = data.get("worker_type")
     
     if wtype in [WorkerType.FESTANGESTELLT.value, WorkerType.MINIJOB.value]:
-        text = "Wie viele Vertragsstunden pro Monat hat der Mitarbeiter?" if locale == "de" else "Скільки контрактних годин на місяць?"
+        text = "Wie viele Vertragsstunden pro Woche hat der Mitarbeiter?" if locale == "de" else "Скільки контрактних годин на тиждень?"
         await message.answer(text, reply_markup=get_cancel_kb(locale))
         await state.set_state(AddWorkerStates.waiting_for_contract_hours)
     else:
@@ -272,12 +303,32 @@ async def generate_invite_link(message: Message, state: FSMContext, current_work
     bot_info = await message.bot.get_me()
     inv_link = f"https://t.me/{bot_info.username}?start={token}"
     
+    # Generate WhatsApp share link
+    import urllib.parse
+    wa_text = urllib.parse.quote(f"Einladung SEK: {inv_link}")
+    wa_link = f"https://wa.me/?text={wa_text}"
+    
+    # Generate QR Code Object
+    qr_bio = generate_qr_code(inv_link)
+    qr_file = BufferedInputFile(qr_bio.getvalue(), filename=f"qr_invite_{token}.png")
+    
     text = (
-        f"Mitarbeiter {data.get('name')} vorbereitet!\n\n"
-        f"Bitte senden Sie diesen Einladungslink an den Mitarbeiter:\n{inv_link}"
+        f"✅ Einladung für {data.get('name')} erstellt\n\n"
+        f"📱 QR-Code zum Scannen (aus dem \n"
+        f"Telegram-Bildschirm heraus scannen):\n\n"
+        f"🔗 Oder Link teilen:\n"
+        f"{inv_link}\n\n"
+        f"⏱ Gültig: 7 Tage\n\n"
+        f"Teilen per: [WhatsApp]({wa_link}) · E-Mail · SMS"
     ) if locale == "de" else (
-        f"Працівника {data.get('name')} підготовлено!\n\nНадішліть це посилання:\n{inv_link}"
+        f"✅ Запрошення для {data.get('name')} створено\n\n"
+        f"📱 QR-код для сканування:\n\n"
+        f"🔗 Або надішліть посилання:\n"
+        f"{inv_link}\n\n"
+        f"⏱ Дійсно: 7 днів\n\n"
+        f"Поділитися через: [WhatsApp]({wa_link}) · E-Mail · SMS"
     )
     
-    await message.answer(text)
+    from aiogram.enums import ParseMode
+    await message.answer_photo(photo=qr_file, caption=text, parse_mode=ParseMode.MARKDOWN)
     await state.clear()

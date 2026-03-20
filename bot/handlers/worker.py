@@ -42,20 +42,8 @@ async def cmd_start_invite(message: Message, state: FSMContext, session: AsyncSe
     # 3. Present GDPR Consent
     await state.update_data(invite_data=invite_data, token=token)
     
-    text = (
-        "Willkommen bei SEK Zeiterfassung!\n\n"
-        "Um fortzufahren, müssen wir Ihre Telegram ID und Ihren Namen verarbeiten. "
-        "Diese Daten werden nach AES-256 Standard verschlüsselt in unserer Datenbank in Deutschland gespeichert. "
-        "Die GPS-Daten Ihres Geräts werden nur im Moment des Einscannens eines QR-Codes zur "
-        "Standortverifizierung erhoben und **nicht** dauerhaft getrackt.\n\n"
-        "Stimmen Sie der Verarbeitung gemäß DSGVO zu?"
-    ) if locale == "de" else (
-        "Ласкаво просимо до SEK Zeiterfassung!\n\n"
-        "Щоб продовжити, ми повинні обробляти ваш Telegram ID та ім'я. "
-        "Ці дані шифруються за стандартом AES-256. "
-        "Дані GPS використовуються лише під час сканування QR-коду.\n\n"
-        "Чи погоджуєтеся ви з обробкою згідно з GDPR?"
-    )
+    from bot.i18n.translations import t
+    text = f"{t('welcome', locale)}\n\n{t('gdpr_text', locale)}"
     
     await message.answer(text, reply_markup=get_gdpr_kb(locale))
     await state.set_state(WorkerOnboardingStates.waiting_for_gdpr_consent)
@@ -70,13 +58,20 @@ async def process_gdpr(callback: CallbackQuery, state: FSMContext, session: Asyn
         
     await callback.message.edit_reply_markup(reply_markup=None)
     
-    text = "Bitte wählen Sie Ihre bevorzugte Sprache:" if locale == "de" else "Будь ласка, оберіть мову:"
-    await callback.message.answer(text, reply_markup=get_language_kb())
-    await state.set_state(WorkerOnboardingStates.waiting_for_language)
+    user_lang = callback.from_user.language_code
+    if user_lang and user_lang in [l.value for l in LanguageSupport]:
+        await handle_language_selection(callback, state, session, user_lang)
+    else:
+        text = "Bitte wählen Sie Ihre bevorzugte Sprache:" if locale == "de" else "Будь ласка, оберіть мову:"
+        await callback.message.answer(text, reply_markup=get_language_kb())
+        await state.set_state(WorkerOnboardingStates.waiting_for_language)
 
 @router.callback_query(WorkerOnboardingStates.waiting_for_language, F.data.startswith("lang_"))
 async def process_language(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    lang_val = callback.data.split("_")[1] # "de" or "uk"
+    lang_val = callback.data.split("_")[1] # "de" or "uk", etc.
+    await handle_language_selection(callback, state, session, lang_val)
+
+async def handle_language_selection(callback: CallbackQuery, state: FSMContext, session: AsyncSession, lang_val: str):
     
     data = await state.get_data()
     invite_data = data.get("invite_data")
@@ -92,7 +87,7 @@ async def process_language(callback: CallbackQuery, state: FSMContext, session: 
         worker_type=invite_data["worker_type"],
         billing_type="HOURLY" if invite_data["worker_type"] != "SUBUNTERNEHMER" else "FIXED",
         hourly_rate=invite_data["hourly_rate"],
-        contract_hours_month=invite_data["contract_hours"],
+        contract_hours_week=invite_data["contract_hours"],
         language=lang_val,
         can_view_dashboard=False,
         is_active=True,
@@ -107,9 +102,28 @@ async def process_language(callback: CallbackQuery, state: FSMContext, session: 
     await redis_client.delete(token)
     await state.clear()
     
-    # Reload locale in memory for final message
-    text = "Erfolgreich registriert! Sie können nun QR-Codes auf der Baustelle scannen." if lang_val == "de" else "Успішно зареєстровано! Тепер ви можете сканувати QR-коди на об'єкті."
-    await callback.message.edit_text(text)
+    from bot.i18n.translations import t
+    text = t("register_complete", lang_val)
+    if callback.message.reply_markup:
+        await callback.message.edit_text(text)
+    else:
+        await callback.message.answer(text)
+
+@router.message(Command("language"))
+async def cmd_language(message: Message, session: AsyncSession, current_worker: Worker):
+    if not current_worker:
+        return
+    await message.answer("Select your language:", reply_markup=get_language_kb())
+
+@router.callback_query(F.data.startswith("lang_"))
+async def change_language(callback: CallbackQuery, session: AsyncSession, current_worker: Worker):
+    if not current_worker:
+        return
+    lang_val = callback.data.split("_")[1]
+    current_worker.language = LanguageSupport(lang_val)
+    session.add(current_worker)
+    await session.commit()
+    await callback.message.edit_text(f"Language updated to {lang_val}.")
 
 # ---------------------------------------------------------
 # QR CHECK-IN FLOW & FSM STATE TRANSITIONS
@@ -344,7 +358,7 @@ async def process_location(message: Message, state: FSMContext, session: AsyncSe
         work_h = total_work_minutes // 60
         work_m = total_work_minutes % 60
         
-        res_text = f"Check-out erfolgreich! Schönen Feierabend. 🌅\n" if locale == "de" else "Чек-аут успішний! Гарного вечора. 🌅\n"
+        res_text = f"{t('checkout_summary', locale)}\n"
         
         hourly_rate = current_worker.hourly_rate or 0.0
         earnings = (total_work_minutes / 60) * hourly_rate
@@ -359,12 +373,13 @@ async def process_location(message: Message, state: FSMContext, session: AsyncSe
             if hourly_rate > 0:
                 res_text += f" | Зароблено: €{earnings:.2f}"
     else:
+        from bot.i18n.translations import t
         labels = {
-            EventType.CHECKIN.value: ("Check-in erfolgreich! 👷‍♂️", "Чек-ін успішний! 👷‍♂️"),
-            EventType.PAUSE_START.value: ("Pause gestartet ☕", "Пауза розпочата ☕"),
-            EventType.PAUSE_END.value: ("Pause beendet. Zurück an die Arbeit! 🔨", "Пауза завершена. До роботи! 🔨")
+            EventType.CHECKIN.value: t("checkin_success", locale),
+            EventType.PAUSE_START.value: t("pause_start", locale),
+            EventType.PAUSE_END.value: t("pause_end", locale)
         }
-        res_text = labels[pending_event][0] if locale == "de" else labels[pending_event][1]
+        res_text = labels[pending_event]
     
     from aiogram.types import ReplyKeyboardRemove
     await message.answer(res_text, reply_markup=ReplyKeyboardRemove())

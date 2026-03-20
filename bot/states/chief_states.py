@@ -1,6 +1,7 @@
 from aiogram.fsm.state import State, StatesGroup
 
 class ChiefRegistrationStates(StatesGroup):
+    waiting_for_owner_phone = State()
     waiting_for_company_name = State()
     waiting_for_company_phone = State()
     waiting_for_company_email = State()

@@ -10,7 +10,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db.database import get_db
-from db.models import Payment, Worker, WorkerType
+from db.models import Payment, Worker, WorkerType, PaymentType
 from db.security import decrypt_string
 
 router = APIRouter()
@@ -34,7 +34,8 @@ async def export_datev(
     stmt = select(Payment, Worker).join(Worker, Payment.worker_id == Worker.id).where(
         Payment.period_start >= start_date,
         Payment.period_end <= end_date,
-        Payment.status == "CONFIRMED"
+        Payment.status == "CONFIRMED",
+        Payment.payment_type == PaymentType.CONTRACT
     )
     result = await db.execute(stmt)
     records = result.all()
