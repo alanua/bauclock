@@ -9,8 +9,25 @@ app = FastAPI(
     version="1.0.0"
 )
 
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi import HTTPException
+
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(public.router)
+
+app.mount("/static", StaticFiles(directory="api/static"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    return FileResponse("api/static/index.html")
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def serve_dashboard(token: str = None):
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized: Token required")
+    # Additional token validation can be added here
+    return FileResponse("api/static/dashboard.html")
 
 from api.scheduler import setup_scheduler
 
