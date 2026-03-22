@@ -59,7 +59,33 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         await message.answer(text)
         return
 
-    # Unknown user
+    # Check if user is a known admin by username
+    username = message.from_user.username or ""
+    if username in bot_config.ADMIN_USERNAMES:
+        if company:
+            text = (
+                f"👋 Willkommen, {username}!\n"
+                f"Admin-Zugang aktiv.\n\n"
+                f"Befehle: /dashboard · /add_worker"
+            )
+            await message.answer(text)
+            return
+        # No company yet — start registration flow
+        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="📱 Teilen Sie Ihre Telefonnummer", request_contact=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await message.answer(
+            f"👋 Willkommen, {username}! Admin-Zugang erkannt.\n\n"
+            "Bitte verifizieren Sie sich mit Ihrer Telefonnummer:",
+            reply_markup=kb
+        )
+        await state.set_state(ChiefRegistrationStates.waiting_for_owner_phone)
+        return
+
+    # Unknown user — show company info only
     await message.answer(
         "🏗 Generalbau S.E.K. GmbH\n"
         "Wir bauen Zukunft – Stein auf Stein.\n\n"
@@ -169,8 +195,8 @@ async def process_site_name(message: Message, state: FSMContext, session: AsyncS
     qr_file = BufferedInputFile(qr_bio.getvalue(), filename=f"qr_{site_name}.png")
     
     # 2. Generate Print-ready PDF
-    pdf_bio = generate_site_pdf(company.name, site_name, "", tg_link)
-    pdf_file = BufferedInputFile(pdf_bio.getvalue(), filename=f"SEK_Aushang_{site_name}.pdf")
+    pdf_bytes = generate_site_pdf(tg_link, company.name, site_name, "")
+    pdf_file = BufferedInputFile(pdf_bytes, filename=f"SEK_Aushang_{site_name}.pdf")
 
     text = (
         f"Baustelle '{site_name}' erstellt!\n\n"

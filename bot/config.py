@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     APP_URL: str = "http://localhost:8000"
     BOT_USERNAME: str = "SEKbaubot"
     OWNER_PHONE: str = "+49176807279824"
+    ADMIN_USERNAMES: list = ["AnOleksii"]
     
     class Config:
         env_file = ".env"
