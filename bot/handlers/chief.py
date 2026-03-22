@@ -48,12 +48,6 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         await message.answer(text)
         return
 
-    # If already a worker:
-    if current_worker:
-        text = "Willkommen zurück bei SEK Zeiterfassung! Nutzen Sie /dashboard für eine Übersicht oder /add_worker um Mitarbeiter hinzuzufügen." if locale == "de" else "Ласкаво просимо назад! Використовуйте /dashboard або /add_worker."
-        await message.answer(text)
-        return
-
     # Check if this user is already a company owner who somehow doesn't have a Worker record
     tg_hash = hash_string(str(message.from_user.id))
     stmt = select(Company).where(Company.owner_telegram_id_hash == tg_hash)

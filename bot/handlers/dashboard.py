@@ -14,10 +14,10 @@ async def cmd_dashboard(message: Message, current_worker: Worker, session: Async
     
     import secrets
     from bot.config import settings
-    from bot.redis_client import redis
+    from bot.redis_cache import redis_client
     
     token = secrets.token_urlsafe(32)
-    await redis.setex(f"dash_token:{token}", 1800, str(current_worker.id))
+    await redis_client.setex(f"dash_token:{token}", 1800, str(current_worker.id))
     
     from db.security import decrypt_string
     name = decrypt_string(current_worker.full_name_enc)
