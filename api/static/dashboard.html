@@ -3,27 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#f6f8fb">
   <title>BauClock Dashboard</title>
   <style>
     :root {
-      --bg: #eef2f6;
+      --bg: #f4f7fb;
       --surface: #ffffff;
-      --surface-muted: #f8fafc;
-      --line: #d8e0ea;
-      --text: #0f172a;
-      --text-muted: #526174;
-      --primary: #1f5eff;
-      --primary-soft: #e7efff;
-      --success: #137a4b;
-      --success-soft: #e7f7ef;
-      --danger: #b42318;
-      --danger-soft: #fdecea;
-      --warning: #b54708;
-      --warning-soft: #fff3e6;
-      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-      --radius: 18px;
-      --radius-sm: 12px;
+      --surface-muted: #f7f9fc;
+      --border: #dde5f0;
+      --text: #152033;
+      --text-muted: #66758c;
+      --primary: #3559d6;
+      --primary-soft: #e9eeff;
+      --success: #1f8a58;
+      --success-soft: #e9f7ef;
+      --danger: #c4433b;
+      --danger-soft: #fdeceb;
+      --warning: #c7771a;
+      --warning-soft: #fff3e3;
+      --shadow: 0 16px 48px rgba(21, 32, 51, 0.08);
+      --radius: 22px;
+      --radius-sm: 16px;
     }
 
     * {
@@ -37,9 +37,11 @@
     }
 
     body {
-      font-family: Inter, "Segoe UI", Arial, sans-serif;
-      background: linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      background:
+        radial-gradient(circle at top left, rgba(53, 89, 214, 0.08), transparent 32%),
+        linear-gradient(180deg, #f9fbfd 0%, var(--bg) 100%);
       color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
     }
 
     button,
@@ -47,63 +49,65 @@
       font: inherit;
     }
 
-    .app-shell {
+    .page {
       min-height: 100vh;
-      padding: 16px;
+      padding: 18px 14px 30px;
     }
 
-    .app {
-      width: min(1160px, 100%);
+    .shell {
+      width: min(980px, 100%);
       margin: 0 auto;
       display: grid;
-      gap: 16px;
+      gap: 18px;
     }
 
-    .panel,
-    .topbar,
-    .toolbar,
-    .kpi-card,
+    .card,
     .state-card,
-    .worker-card,
-    .table-wrap {
+    .loading-box,
+    .worker-card {
       background: var(--surface);
-      border: 1px solid rgba(15, 23, 42, 0.06);
+      border: 1px solid rgba(21, 32, 51, 0.06);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
     }
 
-    .topbar {
+    .header-card,
+    .summary-card,
+    .workers-card {
       padding: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
     }
 
-    .brand-row {
+    .header-card {
       display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .header-row {
+      display: flex;
       flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
       min-width: 0;
     }
 
     .brand-mark {
-      width: 44px;
-      height: 44px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #1f5eff 0%, #0f3dcc 100%);
-      color: #ffffff;
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
       display: grid;
       place-items: center;
+      background: linear-gradient(135deg, #3559d6 0%, #2442ac 100%);
+      color: #ffffff;
       font-size: 16px;
-      font-weight: 700;
+      font-weight: 800;
       letter-spacing: 0.08em;
       flex: 0 0 auto;
     }
@@ -121,31 +125,47 @@
       text-transform: uppercase;
     }
 
-    h1 {
+    h1,
+    h2,
+    h3,
+    p {
       margin: 0;
-      font-size: clamp(24px, 5vw, 34px);
-      line-height: 1.1;
     }
 
-    .subtitle {
-      margin: 6px 0 0;
+    .brand-title {
+      font-size: clamp(28px, 6vw, 36px);
+      line-height: 1.05;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      margin-top: 6px;
       color: var(--text-muted);
-      font-size: 14px;
-      line-height: 1.5;
-      max-width: 60ch;
+      font-size: 15px;
+      line-height: 1.55;
+      max-width: 44ch;
     }
 
-    .session-pill {
+    .session-pill,
+    .role-pill,
+    .status-badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px;
+      min-height: 36px;
+      padding: 8px 14px;
       border-radius: 999px;
+      border: 1px solid transparent;
       font-size: 13px;
-      font-weight: 600;
-      background: var(--surface-muted);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .session-pill {
       color: var(--text-muted);
-      border: 1px solid var(--line);
+      background: var(--surface-muted);
+      border-color: var(--border);
     }
 
     .session-pill::before {
@@ -154,230 +174,269 @@
       height: 8px;
       border-radius: 999px;
       background: currentColor;
-      opacity: 0.8;
+      opacity: 0.85;
     }
 
     .session-pill.success {
       color: var(--success);
       background: var(--success-soft);
-      border-color: rgba(19, 122, 75, 0.14);
+      border-color: rgba(31, 138, 88, 0.14);
     }
 
     .session-pill.warning {
       color: var(--warning);
       background: var(--warning-soft);
-      border-color: rgba(181, 71, 8, 0.16);
+      border-color: rgba(199, 119, 26, 0.18);
     }
 
     .session-pill.danger {
       color: var(--danger);
       background: var(--danger-soft);
-      border-color: rgba(180, 35, 24, 0.16);
+      border-color: rgba(196, 67, 59, 0.18);
     }
 
-    .content-grid {
+    .summary-card {
       display: grid;
-      gap: 16px;
-    }
-
-    .summary-panel,
-    .workers-panel {
-      padding: 18px;
+      gap: 18px;
     }
 
     .summary-head {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      margin-bottom: 16px;
+      gap: 12px;
+    }
+
+    .summary-copy {
+      color: var(--text-muted);
+      font-size: 15px;
+      line-height: 1.55;
     }
 
     .summary-meta {
       display: flex;
       flex-wrap: wrap;
+      gap: 10px 12px;
       align-items: center;
-      gap: 10px;
+    }
+
+    .role-pill {
+      color: var(--primary);
+      background: var(--primary-soft);
+      border-color: rgba(53, 89, 214, 0.16);
+    }
+
+    .updated-at {
       color: var(--text-muted);
       font-size: 14px;
     }
 
-    .role-badge,
-    .filter-chip,
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      min-height: 32px;
-      padding: 6px 12px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      border: 1px solid transparent;
-      white-space: nowrap;
-    }
-
-    .role-badge {
-      color: var(--primary);
-      background: var(--primary-soft);
-      border-color: rgba(31, 94, 255, 0.14);
-    }
-
     .kpi-grid {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: 1fr 1fr;
       gap: 12px;
     }
 
     .kpi-card {
-      padding: 16px;
-      display: grid;
-      gap: 10px;
+      border-radius: var(--radius-sm);
+      padding: 18px;
+      color: #ffffff;
+      box-shadow: none;
+    }
+
+    .kpi-card.present {
+      background: linear-gradient(135deg, #1f8a58 0%, #187148 100%);
+    }
+
+    .kpi-card.total {
+      background: linear-gradient(135deg, #3559d6 0%, #2442ac 100%);
     }
 
     .kpi-label {
-      margin: 0;
-      color: var(--text-muted);
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      opacity: 0.92;
     }
 
     .kpi-value {
-      margin: 0;
-      font-size: clamp(28px, 6vw, 40px);
+      margin-top: 12px;
+      font-size: clamp(32px, 9vw, 46px);
       line-height: 1;
       font-weight: 800;
+      letter-spacing: -0.03em;
     }
 
     .kpi-hint {
-      margin: 0;
+      margin-top: 10px;
+      font-size: 14px;
+      line-height: 1.45;
+      opacity: 0.92;
+    }
+
+    .workers-card {
+      display: grid;
+      gap: 16px;
+    }
+
+    .workers-head {
+      display: grid;
+      gap: 6px;
+    }
+
+    .workers-copy {
       color: var(--text-muted);
       font-size: 14px;
       line-height: 1.5;
     }
 
-    .toolbar {
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+    .search-wrap {
+      position: relative;
+    }
+
+    .search-wrap::before {
+      content: "";
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      transform: translateY(-50%);
+      border: 2px solid #92a0b3;
+      border-radius: 999px;
+      pointer-events: none;
+    }
+
+    .search-wrap::after {
+      content: "";
+      position: absolute;
+      left: 28px;
+      top: calc(50% + 6px);
+      width: 7px;
+      height: 2px;
+      background: #92a0b3;
+      transform: rotate(45deg);
+      border-radius: 999px;
+      pointer-events: none;
     }
 
     .search-field {
       width: 100%;
       min-height: 46px;
       border-radius: 14px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       background: var(--surface-muted);
-      padding: 0 14px;
+      padding: 0 14px 0 42px;
       color: var(--text);
       outline: none;
     }
 
-    .search-field:focus {
-      border-color: rgba(31, 94, 255, 0.4);
-      box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.1);
+    .search-field::placeholder {
+      color: #8a97aa;
     }
 
-    .filter-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+    .search-field:focus-visible,
+    .button:focus-visible {
+      outline: 3px solid rgba(53, 89, 214, 0.18);
+      outline-offset: 2px;
     }
 
-    .filter-chip {
-      background: var(--surface-muted);
-      border-color: var(--line);
-      color: var(--text-muted);
-      cursor: pointer;
-    }
-
-    .filter-chip.is-active {
-      color: var(--primary);
-      background: var(--primary-soft);
-      border-color: rgba(31, 94, 255, 0.14);
-    }
-
-    .workers-panel {
-      display: grid;
-      gap: 16px;
-    }
-
-    .section-head {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .section-title {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 750;
-    }
-
-    .section-copy {
-      margin: 0;
-      color: var(--text-muted);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    .table-wrap {
+    .desktop-list {
+      display: none;
       overflow: hidden;
+      border-radius: var(--radius);
+      border: 1px solid rgba(21, 32, 51, 0.08);
+      background: var(--surface);
     }
 
-    .worker-table {
+    .workers-table {
       width: 100%;
       border-collapse: collapse;
     }
 
-    .worker-table th,
-    .worker-table td {
+    .workers-table th,
+    .workers-table td {
       padding: 14px 16px;
       text-align: left;
       border-bottom: 1px solid #edf2f7;
       vertical-align: middle;
     }
 
-    .worker-table th {
+    .workers-table th {
       color: var(--text-muted);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 700;
       background: var(--surface-muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
-    .worker-table tr:last-child td {
+    .workers-table tr:last-child td {
       border-bottom: none;
+    }
+
+    .status-cell {
+      width: 88px;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #b3bfce;
+      vertical-align: middle;
+    }
+
+    .status-dot.present {
+      background: var(--success);
+    }
+
+    .status-badge {
+      min-height: 32px;
+      padding: 6px 12px;
+      gap: 6px;
+      font-size: 12px;
+      background: var(--surface-muted);
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+
+    .status-badge.present {
+      background: var(--success-soft);
+      border-color: rgba(31, 138, 88, 0.14);
+      color: var(--success);
     }
 
     .worker-name {
       font-weight: 700;
-      color: var(--text);
     }
 
-    .worker-mobile-list {
+    .amount {
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mobile-list {
       display: grid;
       gap: 12px;
     }
 
     .worker-card {
-      padding: 14px;
+      padding: 16px;
       display: grid;
       gap: 14px;
     }
 
-    .worker-card-head,
-    .worker-card-body,
-    .worker-card-row {
+    .worker-card-head {
       display: flex;
-      align-items: flex-start;
       justify-content: space-between;
+      align-items: flex-start;
       gap: 12px;
+    }
+
+    .worker-type {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 14px;
     }
 
     .worker-card-body {
@@ -385,70 +444,83 @@
       gap: 10px;
     }
 
-    .worker-card-row {
-      font-size: 14px;
+    .worker-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
       color: var(--text-muted);
+      font-size: 14px;
     }
 
-    .worker-card-label {
+    .worker-row-label {
       font-weight: 700;
       color: var(--text-muted);
     }
 
-    .status-badge.present {
-      color: var(--success);
-      background: var(--success-soft);
-      border-color: rgba(19, 122, 75, 0.14);
-    }
-
-    .status-badge.absent {
-      color: var(--text-muted);
-      background: var(--surface-muted);
-      border-color: var(--line);
-    }
-
-    .empty-state,
-    .state-card {
-      padding: 28px 20px;
-      text-align: center;
-    }
-
     .empty-state {
-      border: 1px dashed var(--line);
-      border-radius: var(--radius);
+      padding: 28px 20px;
+      border-radius: var(--radius-sm);
+      border: 1px dashed var(--border);
       background: var(--surface-muted);
+      text-align: center;
+      color: var(--text-muted);
+      line-height: 1.55;
     }
 
     .state-wrap {
-      min-height: calc(100vh - 92px);
+      min-height: calc(100vh - 112px);
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
     .state-card {
-      width: min(560px, 100%);
+      width: min(520px, 100%);
+      padding: 32px 24px;
+      text-align: center;
       display: grid;
       gap: 14px;
     }
 
+    .state-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 999px;
+      margin: 0 auto;
+      display: grid;
+      place-items: center;
+      font-size: 26px;
+      font-weight: 700;
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .state-card.warning .state-icon {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .state-card.danger .state-icon {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
     .state-eyebrow {
-      margin: 0;
       color: var(--text-muted);
       font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
       font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
     .state-title {
-      margin: 0;
-      font-size: clamp(24px, 5vw, 34px);
-      line-height: 1.1;
+      font-size: clamp(26px, 5vw, 34px);
+      line-height: 1.08;
+      font-weight: 800;
+      letter-spacing: -0.02em;
     }
 
     .state-copy {
-      margin: 0;
       color: var(--text-muted);
       font-size: 15px;
       line-height: 1.6;
@@ -459,15 +531,15 @@
       flex-wrap: wrap;
       justify-content: center;
       gap: 10px;
-      margin-top: 6px;
+      margin-top: 4px;
     }
 
     .button {
       min-height: 44px;
-      border: 1px solid transparent;
+      padding: 0 18px;
       border-radius: 14px;
-      padding: 0 16px;
-      background: var(--text);
+      border: 1px solid transparent;
+      background: var(--primary);
       color: #ffffff;
       cursor: pointer;
       font-weight: 700;
@@ -476,51 +548,30 @@
     .button.secondary {
       background: var(--surface-muted);
       color: var(--text);
-      border-color: var(--line);
-    }
-
-    .button:focus-visible,
-    .filter-chip:focus-visible,
-    .search-field:focus-visible {
-      outline: 3px solid rgba(31, 94, 255, 0.18);
-      outline-offset: 2px;
+      border-color: var(--border);
     }
 
     .loading-layout {
+      width: min(980px, 100%);
       display: grid;
-      gap: 12px;
-      width: min(920px, 100%);
+      gap: 14px;
     }
 
     .loading-box {
-      height: 72px;
-      border-radius: 16px;
-      background: linear-gradient(
-        90deg,
-        #eef2f6 0%,
-        #f8fafc 50%,
-        #eef2f6 100%
-      );
+      height: 86px;
+      background: linear-gradient(90deg, #eef3f8 0%, #ffffff 50%, #eef3f8 100%);
       background-size: 200% 100%;
       animation: shimmer 1.2s linear infinite;
     }
 
     .loading-grid {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: 1fr 1fr;
       gap: 12px;
     }
 
     .is-hidden {
       display: none !important;
-    }
-
-    .desktop-only {
-      display: none;
-    }
-
-    .muted {
-      color: var(--text-muted);
     }
 
     @keyframes shimmer {
@@ -533,12 +584,14 @@
       }
     }
 
-    @media (min-width: 680px) {
-      .app-shell {
-        padding: 24px;
+    @media (min-width: 740px) {
+      .page {
+        padding: 24px 22px 40px;
       }
 
-      .topbar {
+      .header-card,
+      .summary-card,
+      .workers-card {
         padding: 22px;
       }
 
@@ -547,53 +600,37 @@
         justify-content: space-between;
         align-items: flex-start;
       }
-
-      .kpi-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-
-      .loading-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
     }
 
-    @media (min-width: 840px) {
-      .toolbar {
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-      }
-
-      .toolbar > * {
-        width: auto;
-      }
-
-      .search-field {
-        width: min(320px, 100%);
-      }
-
-      .desktop-only {
+    @media (min-width: 860px) {
+      .desktop-list {
         display: block;
       }
 
-      .mobile-only {
+      .mobile-list {
         display: none;
+      }
+    }
+
+    @media (max-width: 859px) {
+      .kpi-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
 </head>
 <body>
-  <div class="app-shell">
-    <main class="app">
-      <section class="topbar">
-        <div class="brand-row">
+  <div class="page">
+    <main class="shell">
+      <section class="card header-card">
+        <div class="header-row">
           <div class="brand">
             <div class="brand-mark">BC</div>
             <div class="brand-copy">
               <p class="eyebrow">SEK Zeiterfassung</p>
-              <h1>Dashboard</h1>
-              <p class="subtitle">
-                Live-Uebersicht fuer Anwesenheit, aktive Mitarbeiter und Vertragsstunden.
+              <h1 class="brand-title">BauClock</h1>
+              <p class="brand-subtitle">
+                Kompakte Live-Uebersicht fuer Anwesenheit, aktive Mitarbeiter und Vertragsstunden.
               </p>
             </div>
           </div>
@@ -607,14 +644,14 @@
           <div class="loading-grid">
             <div class="loading-box"></div>
             <div class="loading-box"></div>
-            <div class="loading-box"></div>
           </div>
-          <div class="loading-box" style="height: 360px;"></div>
+          <div class="loading-box" style="height: 340px;"></div>
         </div>
       </section>
 
       <section id="missingState" class="state-wrap is-hidden">
-        <div class="state-card">
+        <div class="state-card warning">
+          <div class="state-icon">!</div>
           <p class="state-eyebrow">Zugriff erforderlich</p>
           <h2 class="state-title">Es fehlt ein gueltiger Dashboard-Link.</h2>
           <p class="state-copy">
@@ -630,12 +667,13 @@
       </section>
 
       <section id="accessState" class="state-wrap is-hidden">
-        <div class="state-card">
+        <div class="state-card danger">
+          <div class="state-icon">x</div>
           <p class="state-eyebrow">Sitzung abgelaufen</p>
           <h2 class="state-title">Der Dashboard-Zugriff ist nicht mehr gueltig.</h2>
           <p class="state-copy">
-            Der Link fehlt, ist abgelaufen oder wurde bereits ungueltig. Fordern Sie im Bot
-            einen neuen Dashboard-Link an.
+            Der Link ist ungueltig oder abgelaufen. Fordern Sie im Telegram-Bot einen
+            neuen Dashboard-Link an.
           </p>
           <div class="state-actions">
             <button class="button secondary" type="button" onclick="window.location.reload()">
@@ -647,11 +685,12 @@
 
       <section id="networkState" class="state-wrap is-hidden">
         <div class="state-card">
+          <div class="state-icon">i</div>
           <p class="state-eyebrow">Verbindung fehlgeschlagen</p>
           <h2 class="state-title">Die Dashboard-Daten konnten nicht geladen werden.</h2>
           <p class="state-copy">
-            Pruefen Sie die Verbindung und laden Sie die Seite erneut. Wenn das Problem
-            bestehen bleibt, versuchen Sie es spaeter noch einmal.
+            Die Anfrage konnte nicht abgeschlossen werden. Pruefen Sie die Verbindung
+            und versuchen Sie es danach erneut.
           </p>
           <div class="state-actions">
             <button class="button" type="button" onclick="loadDashboard()">
@@ -664,89 +703,80 @@
         </div>
       </section>
 
-      <div id="appContent" class="content-grid is-hidden">
-        <section class="panel summary-panel">
+      <div id="appContent" class="is-hidden">
+        <section class="card summary-card">
           <div class="summary-head">
             <div>
               <p class="eyebrow">Heute</p>
-              <h2 class="section-title" id="summaryHeadline">Mitarbeiteruebersicht</h2>
-              <p class="section-copy" id="summaryCopy">
+              <h2 id="summaryHeadline" class="brand-title" style="font-size: clamp(26px, 5vw, 34px);">
+                Mitarbeiteruebersicht
+              </h2>
+              <p id="summaryCopy" class="summary-copy">
                 Live-Stand fuer die aktuelle Anwesenheit.
               </p>
             </div>
             <div class="summary-meta">
-              <span id="userRole" class="role-badge">Rolle</span>
-              <span id="updatedAt" class="muted">Zuletzt aktualisiert: -</span>
+              <span id="userRole" class="role-pill">Rolle</span>
+              <span id="updatedAt" class="updated-at">Zuletzt aktualisiert: -</span>
             </div>
           </div>
 
           <div class="kpi-grid">
-            <article class="kpi-card">
-              <p class="kpi-label">Heute vor Ort</p>
-              <p class="kpi-value" id="presentCount">0</p>
-              <p class="kpi-hint" id="presentHint">Keine Mitarbeiter aktiv.</p>
+            <article class="kpi-card present">
+              <p class="kpi-label">Heute anwesend</p>
+              <p id="presentCount" class="kpi-value">0</p>
+              <p id="presentHint" class="kpi-hint">Keine aktiven Mitarbeiter.</p>
             </article>
 
-            <article class="kpi-card">
-              <p class="kpi-label">Aktive Mitarbeiter</p>
-              <p class="kpi-value" id="totalCount">0</p>
-              <p class="kpi-hint">Aktuelle Stammdaten im Dashboard.</p>
-            </article>
-
-            <article class="kpi-card">
-              <p class="kpi-label">Anwesenheitsquote</p>
-              <p class="kpi-value" id="attendanceRate">0%</p>
-              <p class="kpi-hint" id="attendanceHint">Noch keine Anwesenheitsdaten.</p>
+            <article class="kpi-card total">
+              <p class="kpi-label">Gesamt</p>
+              <p id="totalCount" class="kpi-value">0</p>
+              <p id="totalHint" class="kpi-hint">Noch keine Mitarbeiterdaten verfuegbar.</p>
             </article>
           </div>
         </section>
 
-        <section class="toolbar">
-          <input
-            id="workerSearch"
-            class="search-field"
-            type="search"
-            placeholder="Mitarbeiter suchen"
-            autocomplete="off"
-          >
-          <div class="filter-row" role="group" aria-label="Mitarbeiter filtern">
-            <button type="button" class="filter-chip is-active" data-filter="all">Alle</button>
-            <button type="button" class="filter-chip" data-filter="present">Vor Ort</button>
-            <button type="button" class="filter-chip" data-filter="absent">Nicht vor Ort</button>
+        <section class="card workers-card">
+          <div class="workers-head">
+            <h2 style="font-size: 22px; font-weight: 800;">Arbeiter</h2>
+            <p id="workerCountCopy" class="workers-copy">0 Mitarbeiter sichtbar.</p>
           </div>
-        </section>
 
-        <section class="panel workers-panel">
-          <div class="section-head">
-            <h2 class="section-title">Mitarbeiter</h2>
-            <p class="section-copy" id="workerCountCopy">
-              0 Mitarbeiter sichtbar.
-            </p>
+          <div class="search-wrap">
+            <input
+              id="workerSearch"
+              class="search-field"
+              type="search"
+              placeholder="Arbeiter suchen"
+              autocomplete="off"
+            >
           </div>
 
           <div id="emptyWorkersState" class="empty-state is-hidden">
-            <h3 style="margin: 0 0 8px;">Keine Mitarbeiter gefunden</h3>
-            <p class="state-copy" id="emptyWorkersCopy" style="margin: 0;">
-              Fuer die aktuelle Auswahl liegen keine Eintraege vor.
-            </p>
+            <strong style="display: block; margin-bottom: 8px; color: var(--text);">
+              Keine Arbeiter vorhanden.
+            </strong>
+            <span id="emptyWorkersCopy">
+              Fuer die aktuelle Suche liegen keine Eintraege vor.
+            </span>
           </div>
 
-          <div id="desktopWorkers" class="desktop-only table-wrap is-hidden">
-            <table class="worker-table">
+          <div id="desktopWorkers" class="desktop-list is-hidden">
+            <table class="workers-table">
               <thead>
                 <tr>
+                  <th class="status-cell">Status</th>
                   <th>Name</th>
-                  <th>Status</th>
                   <th>Typ</th>
-                  <th>Stundenlohn</th>
-                  <th>Vertragsstunden / Woche</th>
+                  <th>Stundensatz</th>
+                  <th>Std./Woche</th>
                 </tr>
               </thead>
               <tbody id="workersTableBody"></tbody>
             </table>
           </div>
 
-          <div id="mobileWorkers" class="mobile-only worker-mobile-list is-hidden"></div>
+          <div id="mobileWorkers" class="mobile-list is-hidden"></div>
         </section>
       </div>
     </main>
@@ -767,8 +797,7 @@
       presentCount: document.getElementById("presentCount"),
       presentHint: document.getElementById("presentHint"),
       totalCount: document.getElementById("totalCount"),
-      attendanceRate: document.getElementById("attendanceRate"),
-      attendanceHint: document.getElementById("attendanceHint"),
+      totalHint: document.getElementById("totalHint"),
       workerSearch: document.getElementById("workerSearch"),
       workerCountCopy: document.getElementById("workerCountCopy"),
       emptyWorkersState: document.getElementById("emptyWorkersState"),
@@ -776,11 +805,9 @@
       desktopWorkers: document.getElementById("desktopWorkers"),
       mobileWorkers: document.getElementById("mobileWorkers"),
       workersTableBody: document.getElementById("workersTableBody"),
-      filterButtons: Array.from(document.querySelectorAll("[data-filter]")),
     };
 
     let dashboardData = null;
-    let currentFilter = "all";
     let currentSearch = "";
 
     function showState(activeId) {
@@ -828,10 +855,10 @@
 
     function formatRole(value) {
       if (value === "OWNER") {
-        return "Owner";
+        return "Inhaber";
       }
       if (value === "SUPERVISOR") {
-        return "Supervisor";
+        return "Bauleiter";
       }
       return "Dashboard";
     }
@@ -851,13 +878,6 @@
         dateStyle: "medium",
         timeStyle: "short",
       }).format(new Date());
-    }
-
-    function toPercent(part, total) {
-      if (!total) {
-        return 0;
-      }
-      return Math.round((part / total) * 100);
     }
 
     function normaliseData(payload) {
@@ -891,39 +911,22 @@
       }
 
       const searchValue = currentSearch.trim().toLowerCase();
+      if (!searchValue) {
+        return [...dashboardData.workers];
+      }
 
-      return [...dashboardData.workers]
-        .filter((worker) => {
-          if (currentFilter === "present") {
-            return worker.present_today;
-          }
-          if (currentFilter === "absent") {
-            return !worker.present_today;
-          }
-          return true;
-        })
-        .filter((worker) => {
-          if (!searchValue) {
-            return true;
-          }
-          return (
-            worker.name.toLowerCase().includes(searchValue) ||
-            formatWorkerType(worker.type).toLowerCase().includes(searchValue)
-          );
-        })
-        .sort((left, right) => {
-          if (left.present_today !== right.present_today) {
-            return left.present_today ? -1 : 1;
-          }
-          return left.name.localeCompare(right.name, "de");
-        });
+      return dashboardData.workers.filter((worker) => {
+        return (
+          worker.name.toLowerCase().includes(searchValue) ||
+          formatWorkerType(worker.type).toLowerCase().includes(searchValue)
+        );
+      });
     }
 
     function renderSummary(data) {
       const present = data.today.present;
       const total = data.today.total_workers;
       const absent = Math.max(total - present, 0);
-      const attendanceRate = toPercent(present, total);
 
       elements.summaryHeadline.textContent = data.user.name;
       elements.summaryCopy.textContent =
@@ -931,23 +934,29 @@
           ? `${present} von ${total} aktiven Mitarbeitern sind heute vor Ort.`
           : "Noch keine aktiven Mitarbeiter fuer dieses Dashboard.";
       elements.userRole.textContent = formatRole(data.user.role);
+      elements.updatedAt.textContent = `Zuletzt aktualisiert: ${formatUpdatedAt()}`;
+
       elements.presentCount.textContent = String(present);
       elements.presentHint.textContent =
         absent > 0
           ? `${absent} Mitarbeiter sind aktuell nicht vor Ort.`
           : "Alle aktiven Mitarbeiter sind aktuell vor Ort.";
+
       elements.totalCount.textContent = String(total);
-      elements.attendanceRate.textContent = `${attendanceRate}%`;
-      elements.attendanceHint.textContent =
+      elements.totalHint.textContent =
         total > 0
-          ? `${attendanceRate}% der aktiven Mitarbeiter sind heute anwesend.`
-          : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Quote.";
-      elements.updatedAt.textContent = `Zuletzt aktualisiert: ${formatUpdatedAt()}`;
+          ? `${total} aktive Mitarbeiter sind im Dashboard hinterlegt.`
+          : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Gesamtzahl.";
     }
 
     function renderWorkers() {
       const totalWorkers = dashboardData ? dashboardData.workers.length : 0;
-      const filteredWorkers = getFilteredWorkers();
+      const filteredWorkers = getFilteredWorkers().sort((left, right) => {
+        if (left.present_today !== right.present_today) {
+          return left.present_today ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name, "de");
+      });
 
       elements.workerCountCopy.textContent =
         filteredWorkers.length === 1
@@ -955,8 +964,7 @@
           : `${filteredWorkers.length} Mitarbeiter sichtbar.`;
 
       if (!totalWorkers) {
-        elements.emptyWorkersCopy.textContent =
-          "Noch keine aktiven Mitarbeiter vorhanden.";
+        elements.emptyWorkersCopy.textContent = "Noch keine aktiven Mitarbeiter vorhanden.";
         elements.emptyWorkersState.classList.remove("is-hidden");
         elements.desktopWorkers.classList.add("is-hidden");
         elements.mobileWorkers.classList.add("is-hidden");
@@ -967,7 +975,7 @@
 
       if (!filteredWorkers.length) {
         elements.emptyWorkersCopy.textContent =
-          "Keine Treffer fuer die aktuelle Suche oder den gewaehlten Filter.";
+          "Keine Treffer fuer die aktuelle Suche.";
         elements.emptyWorkersState.classList.remove("is-hidden");
         elements.desktopWorkers.classList.add("is-hidden");
         elements.mobileWorkers.classList.add("is-hidden");
@@ -982,15 +990,17 @@
 
       elements.workersTableBody.innerHTML = filteredWorkers
         .map((worker) => {
-          const badgeClass = worker.present_today ? "present" : "absent";
-          const badgeLabel = worker.present_today ? "Vor Ort" : "Nicht vor Ort";
+          const badgeClass = worker.present_today ? "present" : "";
+          const badgeLabel = worker.present_today ? "Anwesend" : "Abwesend";
           return `
             <tr>
+              <td class="status-cell">
+                <span class="status-dot ${badgeClass}" title="${badgeLabel}"></span>
+              </td>
               <td class="worker-name">${escapeHtml(worker.name)}</td>
-              <td><span class="status-badge ${badgeClass}">${badgeLabel}</span></td>
               <td>${escapeHtml(formatWorkerType(worker.type))}</td>
-              <td>${escapeHtml(formatCurrency(worker.rate))}</td>
-              <td>${escapeHtml(String(worker.contract_hours_week || 0))} h</td>
+              <td class="amount">${escapeHtml(formatCurrency(worker.rate))}</td>
+              <td class="amount">${escapeHtml(String(worker.contract_hours_week || 0))} h</td>
             </tr>
           `;
         })
@@ -998,25 +1008,25 @@
 
       elements.mobileWorkers.innerHTML = filteredWorkers
         .map((worker) => {
-          const badgeClass = worker.present_today ? "present" : "absent";
-          const badgeLabel = worker.present_today ? "Vor Ort" : "Nicht vor Ort";
+          const badgeClass = worker.present_today ? "present" : "";
+          const badgeLabel = worker.present_today ? "Anwesend" : "Abwesend";
           return `
             <article class="worker-card">
               <div class="worker-card-head">
                 <div>
                   <div class="worker-name">${escapeHtml(worker.name)}</div>
-                  <div class="muted">${escapeHtml(formatWorkerType(worker.type))}</div>
+                  <div class="worker-type">${escapeHtml(formatWorkerType(worker.type))}</div>
                 </div>
                 <span class="status-badge ${badgeClass}">${badgeLabel}</span>
               </div>
               <div class="worker-card-body">
-                <div class="worker-card-row">
-                  <span class="worker-card-label">Stundenlohn</span>
-                  <span>${escapeHtml(formatCurrency(worker.rate))}</span>
+                <div class="worker-row">
+                  <span class="worker-row-label">Stundensatz</span>
+                  <span class="amount">${escapeHtml(formatCurrency(worker.rate))}</span>
                 </div>
-                <div class="worker-card-row">
-                  <span class="worker-card-label">Vertragsstunden / Woche</span>
-                  <span>${escapeHtml(String(worker.contract_hours_week || 0))} h</span>
+                <div class="worker-row">
+                  <span class="worker-row-label">Std./Woche</span>
+                  <span class="amount">${escapeHtml(String(worker.contract_hours_week || 0))} h</span>
                 </div>
               </div>
             </article>
@@ -1027,15 +1037,6 @@
 
     function renderDashboard(data) {
       renderSummary(data);
-      renderWorkers();
-    }
-
-    function handleFilterButtonClick(event) {
-      const button = event.currentTarget;
-      currentFilter = button.dataset.filter || "all";
-      elements.filterButtons.forEach((item) => {
-        item.classList.toggle("is-active", item === button);
-      });
       renderWorkers();
     }
 
@@ -1062,7 +1063,7 @@
           }
         );
 
-        if (response.status === 404 || response.status === 403) {
+        if (response.status === 404) {
           setSessionState("Sitzung abgelaufen", "danger");
           showState("accessState");
           return;
@@ -1086,10 +1087,6 @@
     elements.workerSearch.addEventListener("input", (event) => {
       currentSearch = event.target.value || "";
       renderWorkers();
-    });
-
-    elements.filterButtons.forEach((button) => {
-      button.addEventListener("click", handleFilterButtonClick);
     });
 
     window.addEventListener("DOMContentLoaded", loadDashboard);
