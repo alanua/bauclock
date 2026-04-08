@@ -15,6 +15,8 @@ DASHBOARD_RESPONSE_HEADERS = {"Cache-Control": "no-store"}
 
 class DashboardAccessError(Exception):
     pass
+
+
 def get_dashboard_role(worker: Worker) -> str:
     return "OWNER" if worker.created_by is None else "SUPERVISOR"
 

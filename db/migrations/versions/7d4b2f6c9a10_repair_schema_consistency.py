@@ -163,13 +163,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
-    payment_columns = _get_columns("payments")
-    if "payment_type" in payment_columns:
-        with op.batch_alter_table("payments", schema=None) as batch_op:
-            batch_op.alter_column(
-                "payment_type",
-                existing_type=sa.String(length=20),
-                nullable=True,
-                server_default="OVERTIME",
-            )
+    """Downgrade is intentionally unsupported for this repair migration."""
+    raise NotImplementedError(
+        "Downgrade is intentionally unsupported for repair_schema_consistency"
+    )

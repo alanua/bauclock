@@ -5,9 +5,9 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func
 
-from db.models import Company, Site, Worker, TimeEvent, EventType, LanguageSupport
+from db.models import Site, Worker, TimeEvent, EventType, LanguageSupport
 from db.security import encrypt_string, hash_string
 from bot.states.worker_states import WorkerOnboardingStates
 from bot.keyboards.worker_kb import get_gdpr_kb, get_language_kb, get_location_request_kb

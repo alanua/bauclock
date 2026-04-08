@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 def _dashboard_access_denied() -> HTTPException:
-    return HTTPException(status_code=403, detail="Dashboard access denied")
+    return HTTPException(status_code=404, detail="Not found")
 
 
 @router.get("/dashboard")

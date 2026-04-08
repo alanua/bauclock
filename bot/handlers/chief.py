@@ -68,16 +68,6 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     username = message.from_user.username or ""
     normalized_username = normalize_username(username)
     if normalized_username in bot_config.ADMIN_USERNAMES:
-        if company:
-            text = (
-                f"👋 Willkommen, {username}!\n"
-                f"Admin-Zugang aktiv.\n\n"
-                f"Befehle: /dashboard · /add_worker"
-            )
-            await message.answer(text)
-            return
-        # No company yet — start registration flow
-        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
         kb = ReplyKeyboardMarkup(
             keyboard=[[KeyboardButton(text="📱 Teilen Sie Ihre Telefonnummer", request_contact=True)]],
             resize_keyboard=True,
@@ -115,7 +105,7 @@ async def process_owner_phone(message: Message, state: FSMContext, locale: str):
         text = (
             "Bitte teilen Sie Ihre eigene Telefonnummer."
             if locale == "de"
-            else "Please share your own phone number."
+            else "Будь ласка, поділіться власним номером телефону."
         )
         await message.answer(text)
         return
@@ -127,7 +117,7 @@ async def process_owner_phone(message: Message, state: FSMContext, locale: str):
         text = (
             "Verifizierung fehlgeschlagen."
             if locale == "de"
-            else "Verification failed."
+            else "Верифікація не пройдена."
         )
         await message.answer(text, reply_markup=ReplyKeyboardRemove())
         return
@@ -135,7 +125,7 @@ async def process_owner_phone(message: Message, state: FSMContext, locale: str):
     text = (
         "Verifizierung erfolgreich. Bitte geben Sie den Namen Ihres Unternehmens ein:"
         if locale == "de"
-        else "Verification successful. Please send your company name:"
+        else "Верифікація успішна. Будь ласка, надішліть назву вашої компанії:"
     )
     await message.answer(text, reply_markup=ReplyKeyboardRemove())
     await state.set_state(ChiefRegistrationStates.waiting_for_company_name)
@@ -145,7 +135,7 @@ async def process_owner_phone_invalid(message: Message, locale: str):
     text = (
         "Bitte teilen Sie Ihre Telefonnummer ueber den Button."
         if locale == "de"
-        else "Please share your phone number with the button."
+        else "Будь ласка, поділіться номером телефону через кнопку."
     )
     await message.answer(text)
 
@@ -237,10 +227,8 @@ async def process_site_name(message: Message, state: FSMContext, session: AsyncS
     session.add(new_site)
     await session.commit()
     
-    bot_info = await message.bot.get_me()
     # Real link will be handled via FastAPI redirect
     # But for now, using Telegram deep link for direct bot access
-    qr_link = f"{bot_config.APP_URL}/s/{qr_token}"
     tg_link = f"https://t.me/{bot_config.BOT_USERNAME}?start={qr_token}"
     
     # 1. Generate QR Code Photo
@@ -329,7 +317,7 @@ async def process_worker_contract_hours(message: Message, state: FSMContext, cur
             raise ValueError
         hours = int(hours_float)
     except ValueError:
-        text = "Bitte geben Sie eine gueltige ganze Zahl ein." if locale == "de" else "Please enter a valid whole number."
+        text = "Bitte geben Sie eine gueltige ganze Zahl ein." if locale == "de" else "Будь ласка, введіть дійсне ціле число."
         await message.answer(text)
         return
         
@@ -376,12 +364,12 @@ async def generate_invite_link(message: Message, state: FSMContext, current_work
         "Gueltig: 7 Tage\n\n"
         f"Teilen per: <a href=\"{safe_wa_link}\">WhatsApp</a> · E-Mail · SMS"
     ) if locale == "de" else (
-        f"Invite for {safe_name} created\n\n"
-        "QR code to scan:\n\n"
-        "Or share this link:\n"
+        f"Запрошення для {safe_name} створено\n\n"
+        "QR-код для сканування:\n\n"
+        "Або надішліть посилання:\n"
         f"{safe_invite_link}\n\n"
-        "Valid for 7 days.\n\n"
-        f"Share via: <a href=\"{safe_wa_link}\">WhatsApp</a> · E-Mail · SMS"
+        "Дійсно: 7 днів\n\n"
+        f"Поділитися через: <a href=\"{safe_wa_link}\">WhatsApp</a> · E-Mail · SMS"
     )
 
     await message.answer_photo(photo=qr_file, caption=text, parse_mode=ParseMode.HTML)

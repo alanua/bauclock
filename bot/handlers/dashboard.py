@@ -34,9 +34,9 @@ async def cmd_dashboard(message: Message, current_worker: Worker, locale: str):
         "Gueltig: 30 Minuten\n"
         "Nicht weitergeben."
         if locale == "de"
-        else "Your personal dashboard:\n\n"
+        else "Ваш персональний дашборд:\n\n"
         f"{url}\n\n"
-        "Valid for 30 minutes.\n"
-        "Do not share it."
+        "Дійсний: 30 хвилин\n"
+        "Не передавайте його."
     )
     await message.answer(text)
