@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
-from api.services.dashboard_access import dashboard_token_key, get_dashboard_role
+from api.services.dashboard_access import get_dashboard_role
 from bot.utils.access import normalize_phone, normalize_username, normalize_usernames
+from db.dashboard_tokens import dashboard_token_key
 
 
 def test_normalize_username():

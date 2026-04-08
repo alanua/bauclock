@@ -6,22 +6,15 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db.dashboard_tokens import dashboard_token_key
 from db.models import TimeEvent, Worker
 
 
-DASHBOARD_TOKEN_PREFIX = "dash_token:"
-DASHBOARD_TOKEN_TTL_SECONDS = 1800
 DASHBOARD_RESPONSE_HEADERS = {"Cache-Control": "no-store"}
 
 
 class DashboardAccessError(Exception):
     pass
-
-
-def dashboard_token_key(token: str) -> str:
-    return f"{DASHBOARD_TOKEN_PREFIX}{token}"
-
-
 def get_dashboard_role(worker: Worker) -> str:
     return "OWNER" if worker.created_by is None else "SUPERVISOR"
 

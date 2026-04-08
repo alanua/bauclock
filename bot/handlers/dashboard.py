@@ -6,12 +6,9 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from api.services.dashboard_access import (
-    DASHBOARD_TOKEN_TTL_SECONDS,
-    dashboard_token_key,
-)
 from bot.config import settings
 from bot.redis_cache import redis_client
+from db.dashboard_tokens import DASHBOARD_TOKEN_TTL_SECONDS, dashboard_token_key
 from db.models import Worker
 
 
