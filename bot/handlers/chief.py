@@ -1,7 +1,9 @@
 import uuid
 import json
+from html import escape
 from aiogram import Router, F
 from aiogram.filters import Command
+from aiogram.enums import ParseMode
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +17,8 @@ from bot.redis_cache import redis_client
 from bot.config import settings as bot_config
 from bot.utils.qr import generate_qr_code
 from bot.utils.pdf import generate_site_pdf
+from bot.utils.access import normalize_phone, normalize_username
+from bot.utils.owner_worker import ensure_company_owner_worker
 from aiogram.types import BufferedInputFile
 
 router = Router()
@@ -55,13 +59,15 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     company = result.scalar_one_or_none()
 
     if company:
+        await ensure_company_owner_worker(message.from_user, session, company)
         text = f"Willkommen zurück, Chef von {company.name}!" if locale == "de" else f"Вітаємо, керівник {company.name}!"
         await message.answer(text)
         return
 
     # Check if user is a known admin by username
     username = message.from_user.username or ""
-    if username in bot_config.ADMIN_USERNAMES:
+    normalized_username = normalize_username(username)
+    if normalized_username in bot_config.ADMIN_USERNAMES:
         if company:
             text = (
                 f"👋 Willkommen, {username}!\n"
@@ -95,6 +101,53 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         "🌐 generalbau-sek.de"
     )
     return
+
+@router.message(ChiefRegistrationStates.waiting_for_owner_phone, F.contact)
+async def process_owner_phone(message: Message, state: FSMContext, locale: str):
+    username = normalize_username(message.from_user.username)
+    if username not in bot_config.ADMIN_USERNAMES:
+        await state.clear()
+        await message.answer("Keine Berechtigung.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    contact = message.contact
+    if not contact or (contact.user_id and contact.user_id != message.from_user.id):
+        text = (
+            "Bitte teilen Sie Ihre eigene Telefonnummer."
+            if locale == "de"
+            else "Please share your own phone number."
+        )
+        await message.answer(text)
+        return
+
+    owner_phone = normalize_phone(bot_config.OWNER_PHONE)
+    shared_phone = normalize_phone(contact.phone_number)
+    if not shared_phone or shared_phone != owner_phone:
+        await state.clear()
+        text = (
+            "Verifizierung fehlgeschlagen."
+            if locale == "de"
+            else "Verification failed."
+        )
+        await message.answer(text, reply_markup=ReplyKeyboardRemove())
+        return
+
+    text = (
+        "Verifizierung erfolgreich. Bitte geben Sie den Namen Ihres Unternehmens ein:"
+        if locale == "de"
+        else "Verification successful. Please send your company name:"
+    )
+    await message.answer(text, reply_markup=ReplyKeyboardRemove())
+    await state.set_state(ChiefRegistrationStates.waiting_for_company_name)
+
+@router.message(ChiefRegistrationStates.waiting_for_owner_phone)
+async def process_owner_phone_invalid(message: Message, locale: str):
+    text = (
+        "Bitte teilen Sie Ihre Telefonnummer ueber den Button."
+        if locale == "de"
+        else "Please share your phone number with the button."
+    )
+    await message.answer(text)
 
 @router.message(ChiefRegistrationStates.waiting_for_company_name)
 async def process_company_name(message: Message, state: FSMContext, session: AsyncSession, locale: str):
@@ -217,7 +270,7 @@ async def process_site_name(message: Message, state: FSMContext, session: AsyncS
 @router.message(Command("add_worker"))
 async def cmd_add_worker(message: Message, state: FSMContext, current_worker: Worker, locale: str):
     # Only Chief (Owner/Waldemar) or Bauleiter (Torsten) can add workers
-    if not current_worker or current_worker.can_view_dashboard is False:
+    if not current_worker or not current_worker.is_active or not current_worker.can_view_dashboard:
         text = "Keine Berechtigung. Nur für Owner (Waldemar) oder Bauleiter (Torsten)." if locale == "de" else "Немає доступу."
         await message.answer(text)
         return
@@ -233,6 +286,7 @@ async def process_worker_type(callback: CallbackQuery, state: FSMContext, locale
     
     text = "Wie lautet der vollständige Name des Mitarbeiters?" if locale == "de" else "Як повне ім'я працівника?"
     await callback.message.edit_text(text, reply_markup=get_cancel_kb(locale))
+    await callback.answer()
     await state.set_state(AddWorkerStates.waiting_for_name)
 
 @router.message(AddWorkerStates.waiting_for_name)
@@ -269,9 +323,13 @@ async def process_worker_rate(message: Message, state: FSMContext, current_worke
 @router.message(AddWorkerStates.waiting_for_contract_hours)
 async def process_worker_contract_hours(message: Message, state: FSMContext, current_worker: Worker, locale: str):
     try:
-        hours = float(message.text.replace(",", "."))
+        hours_text = message.text.strip().replace(",", ".")
+        hours_float = float(hours_text)
+        if not hours_float.is_integer():
+            raise ValueError
+        hours = int(hours_float)
     except ValueError:
-        text = "Bitte geben Sie eine gültige Zahl ein." if locale == "de" else "Будь ласка, введіть дійсне число."
+        text = "Bitte geben Sie eine gueltige ganze Zahl ein." if locale == "de" else "Please enter a valid whole number."
         await message.answer(text)
         return
         
@@ -288,7 +346,7 @@ async def generate_invite_link(message: Message, state: FSMContext, current_work
         "name": data.get("name"),
         "worker_type": data.get("worker_type"),
         "hourly_rate": data.get("rate"),
-        "contract_hours": data.get("contract_hours", 0.0),
+        "contract_hours": data.get("contract_hours", 0),
         "created_by": current_worker.id
     }
     
@@ -305,24 +363,26 @@ async def generate_invite_link(message: Message, state: FSMContext, current_work
     # Generate QR Code Object
     qr_bio = generate_qr_code(inv_link)
     qr_file = BufferedInputFile(qr_bio.getvalue(), filename=f"qr_invite_{token}.png")
-    
+
+    safe_name = escape(str(data.get("name") or ""))
+    safe_invite_link = escape(inv_link)
+    safe_wa_link = escape(wa_link, quote=True)
+
     text = (
-        f"✅ Einladung für {data.get('name')} erstellt\n\n"
-        f"📱 QR-Code zum Scannen (aus dem \n"
-        f"Telegram-Bildschirm heraus scannen):\n\n"
-        f"🔗 Oder Link teilen:\n"
-        f"{inv_link}\n\n"
-        f"⏱ Gültig: 7 Tage\n\n"
-        f"Teilen per: [WhatsApp]({wa_link}) · E-Mail · SMS"
+        f"Einladung fuer {safe_name} erstellt\n\n"
+        "QR-Code zum Scannen:\n\n"
+        "Oder Link teilen:\n"
+        f"{safe_invite_link}\n\n"
+        "Gueltig: 7 Tage\n\n"
+        f"Teilen per: <a href=\"{safe_wa_link}\">WhatsApp</a> · E-Mail · SMS"
     ) if locale == "de" else (
-        f"✅ Запрошення для {data.get('name')} створено\n\n"
-        f"📱 QR-код для сканування:\n\n"
-        f"🔗 Або надішліть посилання:\n"
-        f"{inv_link}\n\n"
-        f"⏱ Дійсно: 7 днів\n\n"
-        f"Поділитися через: [WhatsApp]({wa_link}) · E-Mail · SMS"
+        f"Invite for {safe_name} created\n\n"
+        "QR code to scan:\n\n"
+        "Or share this link:\n"
+        f"{safe_invite_link}\n\n"
+        "Valid for 7 days.\n\n"
+        f"Share via: <a href=\"{safe_wa_link}\">WhatsApp</a> · E-Mail · SMS"
     )
-    
-    from aiogram.enums import ParseMode
-    await message.answer_photo(photo=qr_file, caption=text, parse_mode=ParseMode.MARKDOWN)
+
+    await message.answer_photo(photo=qr_file, caption=text, parse_mode=ParseMode.HTML)
     await state.clear()

@@ -32,12 +32,11 @@ def upgrade() -> None:
     op.create_table('daily_summaries',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('worker_id', sa.Integer(), nullable=False),
-    sa.Column('date', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('worked_minutes', sa.Integer(), nullable=True),
-    sa.Column('pause_minutes', sa.Integer(), nullable=True),
+    sa.Column('date', sa.Date(), nullable=False),
+    sa.Column('total_minutes', sa.Integer(), nullable=True),
+    sa.Column('break_minutes', sa.Integer(), nullable=True),
     sa.Column('contract_minutes', sa.Integer(), nullable=True),
     sa.Column('overtime_minutes', sa.Integer(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.ForeignKeyConstraint(['worker_id'], ['workers.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -45,7 +44,7 @@ def upgrade() -> None:
     op.create_table('monthly_adjustments',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('worker_id', sa.Integer(), nullable=False),
-    sa.Column('month', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('month', sa.Date(), nullable=False),
     sa.Column('adjustment_minutes', sa.Integer(), nullable=False),
     sa.Column('reason', sa.String(length=255), nullable=True),
     sa.Column('created_by', sa.Integer(), nullable=True),
@@ -56,7 +55,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_monthly_adjustments_id'), 'monthly_adjustments', ['id'], unique=False)
     with op.batch_alter_table('payments', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('payment_type', sa.String(length=20), nullable=True, server_default='OVERTIME'))
+        batch_op.add_column(sa.Column('payment_type', sa.String(length=20), nullable=False, server_default='OVERTIME'))
 
     with op.batch_alter_table('workers', schema=None) as batch_op:
         batch_op.add_column(sa.Column('contract_hours_week', sa.Integer(), nullable=True))

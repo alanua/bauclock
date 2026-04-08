@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Enum
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 from db.security import encrypt_string, decrypt_string, hash_string
@@ -136,7 +136,7 @@ class Payment(Base):
     hours_paid = Column(Float, nullable=False)
     amount_paid = Column(Float, nullable=False)
     status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING)
-    payment_type = Column(String(20), default="OVERTIME")
+    payment_type = Column(String(20), nullable=False, default="OVERTIME", server_default="OVERTIME")
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     
     created_by = Column(Integer, ForeignKey("workers.id"), nullable=True)
@@ -148,7 +148,7 @@ class MonthlyAdjustment(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
-    month = Column(DateTime(timezone=True), nullable=False)
+    month = Column(Date, nullable=False)
     adjustment_minutes = Column(Integer, nullable=False)
     reason = Column(String(255), nullable=True)
     created_by = Column(Integer, ForeignKey("workers.id"), nullable=True)
@@ -161,11 +161,10 @@ class DailySummary(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False)
-    worked_minutes = Column(Integer, default=0)
-    pause_minutes = Column(Integer, default=0)
+    date = Column(Date, nullable=False)
+    total_minutes = Column(Integer, default=0)
+    break_minutes = Column(Integer, default=0)
     contract_minutes = Column(Integer, default=0)
     overtime_minutes = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     worker = relationship("Worker", foreign_keys=[worker_id])

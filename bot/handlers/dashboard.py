@@ -1,32 +1,45 @@
+from __future__ import annotations
+
+import secrets
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.services.dashboard_access import (
+    DASHBOARD_TOKEN_TTL_SECONDS,
+    dashboard_token_key,
+)
+from bot.config import settings
+from bot.redis_cache import redis_client
 from db.models import Worker
+
 
 router = Router()
 
+
 @router.message(Command("dashboard"))
-async def cmd_dashboard(message: Message, current_worker: Worker, session: AsyncSession):
-    # Silent for non-admins - no response at all
-    if not current_worker or not current_worker.can_view_dashboard:
+async def cmd_dashboard(message: Message, current_worker: Worker, locale: str):
+    if not current_worker or not current_worker.is_active or not current_worker.can_view_dashboard:
         return
-    
-    import secrets
-    from bot.config import settings
-    from bot.redis_cache import redis_client
-    
+
     token = secrets.token_urlsafe(32)
-    await redis_client.setex(f"dash_token:{token}", 1800, str(current_worker.id))
-    
-    from db.security import decrypt_string
-    name = decrypt_string(current_worker.full_name_enc)
-    url = f"{settings.APP_URL}/dashboard?token={token}"
-    
+    await redis_client.setex(
+        dashboard_token_key(token),
+        DASHBOARD_TOKEN_TTL_SECONDS,
+        str(current_worker.id),
+    )
+
+    url = f"{settings.APP_URL.rstrip('/')}/dashboard?token={token}"
     text = (
-        f"📊 Ihr persönliches Dashboard:\n\n"
+        "Ihr persoenliches Dashboard:\n\n"
         f"{url}\n\n"
-        f"⏱ Gültig: 30 Minuten\n"
-        f"🔒 Nicht weitergeben!"
+        "Gueltig: 30 Minuten\n"
+        "Nicht weitergeben."
+        if locale == "de"
+        else "Your personal dashboard:\n\n"
+        f"{url}\n\n"
+        "Valid for 30 minutes.\n"
+        "Do not share it."
     )
     await message.answer(text)

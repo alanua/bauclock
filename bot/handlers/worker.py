@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 
-from db.models import Company, Site, Worker, TimeEvent, EventType
+from db.models import Company, Site, Worker, TimeEvent, EventType, LanguageSupport
 from db.security import encrypt_string, hash_string
 from bot.states.worker_states import WorkerOnboardingStates
 from bot.keyboards.worker_kb import get_gdpr_kb, get_language_kb, get_location_request_kb
