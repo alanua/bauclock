@@ -173,14 +173,3 @@ def downgrade() -> None:
                 nullable=True,
                 server_default="OVERTIME",
             )
-
-    worker_columns = _get_columns("workers")
-    if "contract_hours_week" in worker_columns:
-        contract_hours_week_type = worker_columns["contract_hours_week"]["type"]
-        if isinstance(contract_hours_week_type, sa.Integer):
-            with op.batch_alter_table("workers", schema=None) as batch_op:
-                batch_op.alter_column(
-                    "contract_hours_week",
-                    existing_type=contract_hours_week_type,
-                    type_=sa.Float(),
-                )
