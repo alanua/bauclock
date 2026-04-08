@@ -1,1384 +1,1098 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BauClock Dashboard · S.E.K. GmbH</title>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0e0d0b;
-  --s1:#141210;
-  --s2:#1a1814;
-  --s3:#222018;
-  --gold:#c9a84c;
-  --gold2:#e8c96a;
-  --green:#4caf7d;
-  --red:#e05050;
-  --blue:#5096e0;
-  --amber:#e09050;
-  --light:#f0ebe0;
-  --muted:rgba(240,235,224,0.5);
-  --muted2:rgba(240,235,224,0.22);
-  --border:rgba(201,168,76,0.13);
-  --border2:rgba(240,235,224,0.06);
-  --sw:224px;
-  --topbar:56px;
-}
-html{font-size:15px;height:100%}
-body{
-  background:var(--bg);color:var(--light);
-  font-family:'Barlow',sans-serif;font-weight:400;
-  display:flex;height:100vh;overflow:hidden;
-}
-::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:var(--s1)}
-::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.3);border-radius:2px}
-::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f172a">
+  <title>BauClock Dashboard</title>
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --surface: #ffffff;
+      --surface-muted: #f8fafc;
+      --line: #d8e0ea;
+      --text: #0f172a;
+      --text-muted: #526174;
+      --primary: #1f5eff;
+      --primary-soft: #e7efff;
+      --success: #137a4b;
+      --success-soft: #e7f7ef;
+      --danger: #b42318;
+      --danger-soft: #fdecea;
+      --warning: #b54708;
+      --warning-soft: #fff3e6;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      --radius: 18px;
+      --radius-sm: 12px;
+    }
 
-/* ══ SIDEBAR ══ */
-.sb{
-  width:var(--sw);flex-shrink:0;
-  background:var(--s1);
-  border-right:1px solid var(--border);
-  display:flex;flex-direction:column;
-  height:100vh;overflow-y:auto;
-  position:relative;z-index:50;
-  transition:transform 0.3s;
-}
-.sb-logo{
-  padding:1.4rem 1.2rem;
-  border-bottom:1px solid var(--border);
-  display:flex;align-items:center;gap:0.8rem;
-  flex-shrink:0;
-}
-.sb-mark{
-  width:38px;height:38px;background:var(--gold);
-  display:flex;align-items:center;justify-content:center;
-  font-family:'Barlow Condensed',sans-serif;
-  font-weight:700;font-size:1.1rem;color:var(--bg);
-  flex-shrink:0;
-}
-.sb-brand{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase}
-.sb-sub{color:var(--muted2);font-size:0.62rem;margin-top:1px}
+    * {
+      box-sizing: border-box;
+    }
 
-.sb-section{padding:0.75rem 0}
-.sb-lbl{
-  font-size:0.58rem;letter-spacing:0.22em;text-transform:uppercase;
-  color:var(--muted2);padding:0.4rem 1.2rem 0.25rem;
-}
-.sb-item{
-  display:flex;align-items:center;gap:0.7rem;
-  padding:0.65rem 1.2rem;
-  font-size:0.82rem;color:var(--muted);
-  cursor:pointer;transition:all 0.2s;
-  border-left:2px solid transparent;
-  user-select:none;
-}
-.sb-item:hover{color:var(--light);background:rgba(201,168,76,0.04)}
-.sb-item.on{color:var(--gold);border-left-color:var(--gold);background:rgba(201,168,76,0.06)}
-.sb-icon{font-size:0.88rem;width:1.1rem;text-align:center;flex-shrink:0}
-.sb-badge{
-  margin-left:auto;background:var(--red);color:#fff;
-  font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:2px;
-  font-weight:600;
-}
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+    }
 
-.sb-foot{
-  margin-top:auto;padding:1.1rem 1.2rem;
-  border-top:1px solid var(--border);flex-shrink:0;
-}
-.sb-user{display:flex;align-items:center;gap:0.7rem}
-.sb-avatar{
-  width:34px;height:34px;border-radius:50%;
-  background:var(--gold);
-  display:flex;align-items:center;justify-content:center;
-  font-family:'Barlow Condensed',sans-serif;
-  font-weight:700;font-size:0.9rem;color:var(--bg);flex-shrink:0;
-}
-.sb-uname{font-size:0.82rem;font-weight:500}
-.sb-urole{font-size:0.62rem;color:var(--muted2)}
+    body {
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      color: var(--text);
+    }
 
-/* ══ MAIN AREA ══ */
-.main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+    button,
+    input {
+      font: inherit;
+    }
 
-/* TOPBAR */
-.tb{
-  height:var(--topbar);flex-shrink:0;
-  background:var(--s1);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;
-  padding:0 1.5rem;gap:1rem;
-}
-.tb-left{display:flex;align-items:center;gap:1rem;min-width:0}
-.tb-menu-btn{
-  display:none;background:none;border:none;
-  color:var(--light);font-size:1.2rem;cursor:pointer;flex-shrink:0;
-}
-.tb-title{
-  font-family:'Barlow Condensed',sans-serif;
-  font-weight:600;font-size:1.05rem;
-  letter-spacing:0.06em;text-transform:uppercase;
-  white-space:nowrap;
-}
-.tb-bc{font-size:0.7rem;color:var(--muted);white-space:nowrap}
-.tb-right{display:flex;align-items:center;gap:1rem;flex-shrink:0}
-.live-dot-wrap{display:flex;align-items:center;gap:0.4rem;font-size:0.65rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--green)}
-.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.5s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0.25}}
-.tb-time{font-size:0.75rem;color:var(--muted);font-variant-numeric:tabular-nums}
-.tb-export-btn{
-  background:transparent;border:1px solid var(--border);
-  color:var(--muted);padding:0.35rem 0.9rem;
-  font-family:'Barlow Condensed',sans-serif;
-  font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;
-  cursor:pointer;transition:all 0.25s;white-space:nowrap;
-}
-.tb-export-btn:hover{border-color:var(--gold);color:var(--gold)}
+    .app-shell {
+      min-height: 100vh;
+      padding: 16px;
+    }
 
-/* FILTER BAR */
-.fb{
-  background:var(--s2);border-bottom:1px solid var(--border2);
-  padding:0.6rem 1.5rem;
-  display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;
-  flex-shrink:0;
-}
-.fb-lbl{font-size:0.6rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted2);white-space:nowrap;flex-shrink:0}
-.period-tabs{display:flex;border:1px solid var(--border);flex-shrink:0}
-.pt{
-  padding:0.32rem 0.8rem;
-  font-family:'Barlow Condensed',sans-serif;
-  font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;
-  color:var(--muted);background:transparent;
-  border:none;border-right:1px solid var(--border);
-  cursor:pointer;transition:all 0.2s;white-space:nowrap;
-}
-.pt:last-child{border-right:none}
-.pt:hover{color:var(--light);background:rgba(201,168,76,0.04)}
-.pt.on{color:var(--gold);background:rgba(201,168,76,0.08)}
-.fb-sep{width:1px;height:22px;background:var(--border);flex-shrink:0}
-.fb-sel{
-  background:var(--s3);border:1px solid var(--border);
-  color:var(--light);padding:0.32rem 1.6rem 0.32rem 0.6rem;
-  font-family:'Barlow',sans-serif;font-size:0.78rem;
-  outline:none;cursor:pointer;appearance:none;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='rgba(201,168,76,0.6)'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 0.5rem center;
-  transition:border-color 0.2s;
-}
-.fb-sel:focus{border-color:var(--gold)}
-.fb-sel option{background:var(--s3)}
-.fb-date{
-  background:var(--s3);border:1px solid var(--border);
-  color:var(--light);padding:0.32rem 0.6rem;
-  font-family:'Barlow',sans-serif;font-size:0.75rem;outline:none;
-}
-.fb-date::-webkit-calendar-picker-indicator{filter:invert(0.6) sepia(1) saturate(3) hue-rotate(5deg);cursor:pointer}
-#dateRange{display:none;align-items:center;gap:0.4rem}
-#dateRange.show{display:flex}
+    .app {
+      width: min(1160px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
 
-/* SCROLL AREA */
-.scroll{flex:1;overflow-y:auto;overflow-x:hidden}
+    .panel,
+    .topbar,
+    .toolbar,
+    .kpi-card,
+    .state-card,
+    .worker-card,
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid rgba(15, 23, 42, 0.06);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
 
-/* CONTENT PANELS */
-.panel{display:none;padding:1.25rem 1.5rem;flex-direction:column;gap:1.1rem}
-.panel.on{display:flex}
+    .topbar {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
 
-/* STAT CARDS ROW */
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:0.9rem}
-.sc{
-  background:var(--s2);border:1px solid var(--border2);
-  padding:1.1rem 1.15rem;position:relative;overflow:hidden;
-  transition:border-color 0.3s;
-}
-.sc:hover{border-color:var(--border)}
-.sc::after{
-  content:'';position:absolute;top:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,var(--gold),var(--gold2));
-  transform:scaleX(0);transform-origin:left;
-  transition:transform 0.4s;
-}
-.sc:hover::after{transform:scaleX(1)}
-.sc-lbl{font-size:0.62rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted2);margin-bottom:0.4rem}
-.sc-val{font-family:'Barlow Condensed',sans-serif;font-size:2rem;font-weight:700;line-height:1}
-.sc-val.g{color:var(--gold)}
-.sc-val.gr{color:var(--green)}
-.sc-val.rd{color:var(--red)}
-.sc-sub{font-size:0.68rem;color:var(--muted2);margin-top:0.3rem}
-.sc-trend{position:absolute;top:1rem;right:1rem;font-size:0.65rem}
-.sc-trend.up{color:var(--green)}
-.sc-trend.dn{color:var(--red)}
-.sc-bar{height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin-top:0.6rem;overflow:hidden}
-.sc-bar-fill{height:100%;border-radius:2px}
+    .brand-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
 
-/* GRID LAYOUTS */
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:0.9rem}
-.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.9rem}
-.g73{display:grid;grid-template-columns:7fr 4fr;gap:0.9rem}
-.g37{display:grid;grid-template-columns:4fr 7fr;gap:0.9rem}
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
 
-/* CARD */
-.card{background:var(--s2);border:1px solid var(--border2);padding:1.15rem}
-.ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
-.ct{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:0.8rem;letter-spacing:0.1em;text-transform:uppercase}
-.cb{font-size:0.62rem;letter-spacing:0.08em;text-transform:uppercase;padding:0.18rem 0.55rem;border:1px solid var(--border2);color:var(--muted2)}
-.cb.gr{border-color:rgba(76,175,125,0.25);color:var(--green)}
-.cb.rd{border-color:rgba(224,80,80,0.25);color:var(--red)}
-.cb.gd{border-color:rgba(201,168,76,0.25);color:var(--gold)}
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #1f5eff 0%, #0f3dcc 100%);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      flex: 0 0 auto;
+    }
 
-/* CHART */
-.chart-box{position:relative}
-.h180{height:180px}
-.h220{height:220px}
-.h260{height:260px}
-.h300{height:300px}
+    .brand-copy {
+      min-width: 0;
+    }
 
-/* TABLE */
-.tbl-wrap{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:0.8rem}
-thead th{
-  font-family:'Barlow Condensed',sans-serif;
-  font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;
-  color:var(--muted2);font-weight:500;
-  padding:0.55rem 0.75rem;text-align:left;
-  border-bottom:1px solid var(--border2);white-space:nowrap;
-  cursor:pointer;user-select:none;
-}
-thead th:hover{color:var(--gold)}
-thead th .sort{color:var(--gold);margin-left:0.25rem}
-tbody tr{border-bottom:1px solid var(--border2);transition:background 0.15s;cursor:pointer}
-tbody tr:hover{background:rgba(201,168,76,0.04)}
-tbody td{padding:0.65rem 0.75rem;color:var(--muted);vertical-align:middle}
-tbody td:first-child{color:var(--light);font-weight:500}
-.td-mono{font-variant-numeric:tabular-nums;white-space:nowrap}
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
 
-/* BADGES */
-.bdg{display:inline-flex;align-items:center;gap:0.25rem;padding:0.12rem 0.55rem;font-size:0.65rem;border-radius:1px;white-space:nowrap}
-.bdg-gr{background:rgba(76,175,125,0.1);color:var(--green);border:1px solid rgba(76,175,125,0.2)}
-.bdg-rd{background:rgba(224,80,80,0.1);color:var(--red);border:1px solid rgba(224,80,80,0.2)}
-.bdg-gd{background:rgba(201,168,76,0.1);color:var(--gold);border:1px solid rgba(201,168,76,0.2)}
-.bdg-bl{background:rgba(80,150,224,0.1);color:var(--blue);border:1px solid rgba(80,150,224,0.2)}
-.bdg-mu{background:rgba(240,235,224,0.04);color:var(--muted2);border:1px solid var(--border2)}
-.bdg-am{background:rgba(224,144,80,0.1);color:var(--amber);border:1px solid rgba(224,144,80,0.2)}
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 5vw, 34px);
+      line-height: 1.1;
+    }
 
-/* WORKER ROW */
-.wr{display:flex;align-items:center;gap:0.75rem;padding:0.7rem 0;border-bottom:1px solid var(--border2);cursor:pointer;transition:background 0.15s;margin:0 -1.15rem;padding:0.7rem 1.15rem}
-.wr:hover{background:rgba(201,168,76,0.04)}
-.wr.sel{background:rgba(201,168,76,0.06);border-left:2px solid var(--gold)}
-.wa{width:34px;height:34px;border-radius:50%;background:var(--s3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.82rem;color:var(--gold);flex-shrink:0}
-.wi{flex:1;min-width:0}
-.wn{font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.wm{font-size:0.68rem;color:var(--muted2)}
-.wh{text-align:right;flex-shrink:0}
-.wh-v{font-family:'Barlow Condensed',sans-serif;font-size:1.05rem;font-weight:600;line-height:1}
-.wh-s{font-size:0.62rem}
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 60ch;
+    }
 
-/* PROGRESS */
-.pbar{height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin-top:0.5rem;overflow:hidden}
-.pbar-f{height:100%;border-radius:2px;transition:width 0.8s}
+    .session-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--surface-muted);
+      color: var(--text-muted);
+      border: 1px solid var(--line);
+    }
 
-/* SITE CARD */
-.site-c{
-  background:var(--s3);border:1px solid var(--border2);
-  padding:1.15rem;cursor:pointer;transition:border-color 0.3s;
-  border-top:2px solid transparent;
-}
-.site-c:hover{border-top-color:var(--gold)}
-.site-name{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:1.1rem;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem}
-.site-addr{font-size:0.72rem;color:var(--muted2);margin-bottom:0.85rem}
-.site-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;border-top:1px solid var(--border2);padding-top:0.85rem}
-.ss-l{font-size:0.58rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted2);margin-bottom:0.2rem}
-.ss-v{font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;line-height:1}
+    .session-pill::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.8;
+    }
 
-/* PAYMENT ROW */
-.pay-row{display:flex;align-items:center;gap:1rem;padding:0.8rem 0;border-bottom:1px solid var(--border2)}
-.pay-info{flex:1;min-width:0}
-.pay-name{font-size:0.82rem;font-weight:500}
-.pay-period{font-size:0.7rem;color:var(--muted2)}
-.pay-hours{font-size:0.7rem;color:var(--muted)}
-.pay-amt{font-family:'Barlow Condensed',sans-serif;font-size:1.2rem;font-weight:700;text-align:right;white-space:nowrap}
-.pay-btn{background:transparent;border:1px solid var(--border2);color:var(--muted2);padding:0.28rem 0.75rem;font-family:'Barlow Condensed',sans-serif;font-size:0.65rem;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;transition:all 0.2s;white-space:nowrap}
-.pay-btn:hover{border-color:var(--gold);color:var(--gold)}
-.pay-btn.gr{border-color:rgba(76,175,125,0.3);color:var(--green)}
-.pay-btn.gr:hover{background:rgba(76,175,125,0.08)}
+    .session-pill.success {
+      color: var(--success);
+      background: var(--success-soft);
+      border-color: rgba(19, 122, 75, 0.14);
+    }
 
-/* HEATMAP */
-.hm-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:0.5rem}
-.hm-cell{aspect-ratio:1;border-radius:2px;transition:transform 0.15s}
-.hm-cell:hover{transform:scale(1.3)}
+    .session-pill.warning {
+      color: var(--warning);
+      background: var(--warning-soft);
+      border-color: rgba(181, 71, 8, 0.16);
+    }
 
-/* ALERT BOX */
-.alert-box{padding:0.75rem 1rem;border-left:3px solid;margin-bottom:0.5rem}
-.alert-box.rd{border-color:var(--red);background:rgba(224,80,80,0.06)}
-.alert-box.am{border-color:var(--amber);background:rgba(224,144,80,0.06)}
-.alert-box.gr{border-color:var(--green);background:rgba(76,175,125,0.06)}
-.alert-title{font-size:0.78rem;font-weight:500;margin-bottom:0.2rem}
-.alert-desc{font-size:0.7rem;color:var(--muted)}
+    .session-pill.danger {
+      color: var(--danger);
+      background: var(--danger-soft);
+      border-color: rgba(180, 35, 24, 0.16);
+    }
 
-/* SEARCH */
-.search-wrap{position:relative}
-.search-inp{
-  width:100%;background:var(--s3);border:1px solid var(--border2);
-  color:var(--light);padding:0.5rem 0.75rem 0.5rem 2rem;
-  font-family:'Barlow',sans-serif;font-size:0.82rem;
-  outline:none;transition:border-color 0.2s;
-}
-.search-inp:focus{border-color:var(--border)}
-.search-ico{position:absolute;left:0.6rem;top:50%;transform:translateY(-50%);font-size:0.8rem;color:var(--muted2)}
+    .content-grid {
+      display: grid;
+      gap: 16px;
+    }
 
-/* TABS inside panel */
-.inner-tabs{display:flex;gap:0;border-bottom:1px solid var(--border2);margin-bottom:1rem}
-.it{padding:0.55rem 1rem;font-family:'Barlow Condensed',sans-serif;font-size:0.72rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all 0.2s;margin-bottom:-1px}
-.it:hover{color:var(--light)}
-.it.on{color:var(--gold);border-bottom-color:var(--gold)}
+    .summary-panel,
+    .workers-panel {
+      padding: 18px;
+    }
 
-/* RESPONSIVE */
-.wd-wrap { display: flex; flex-direction: column; gap: 0.9rem; position: relative; }
+    .summary-head {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
 
-@media(max-width: 1024px) {
-  :root { --sw: 240px; }
-  .sb { position: fixed; top: 0; left: 0; bottom: 0; transform: translateX(-100%); z-index: 200; }
-  .sb.open { transform: translateX(0); }
-  .tb-menu-btn { display: block; }
-  .stats-row { grid-template-columns: repeat(2, 1fr); }
-  .g2, .g3, .g73, .g37 { grid-template-columns: 1fr 1fr; }
-}
+    .summary-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
 
-@media(max-width: 767px) {
-  .stats-row { grid-template-columns: 1fr; }
-  .g2, .g3, .g73, .g37 { grid-template-columns: 1fr; }
-  .tb { padding: 0 1rem; }
-  .panel { padding: 0.9rem 1rem; }
-  
-  /* Filter bar scrollable horizontal */
-  .fb { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.8rem; -webkit-overflow-scrolling: touch; }
-  
-  /* Touch-friendly tap targets */
-  .fb-sel, .fb-date, .pt, .pay-btn, .tb-export-btn, .tb-menu-btn { min-height: 44px; display: flex; align-items: center; }
-  .sb-item { min-height: 44px; }
-  .wr { min-height: 44px; }
-  
-  /* Charts reduced height */
-  .chart-box, .chart-box.h180, .chart-box.h220, .chart-box.h260, .chart-box.h300 { height: 220px !important; width: 100%; }
-  
-  /* Bottom Sheet for Worker Details */
-  .wd-wrap {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 300;
-    background: var(--bg); border-top: 1px solid var(--border);
-    border-radius: 16px 16px 0 0; padding: 1.5rem 1rem;
-    max-height: 85vh; overflow-y: auto;
-    transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.3, 0, 0, 1);
-    box-shadow: 0 -10px 40px rgba(0,0,0,0.8);
-  }
-  .wd-wrap.open { transform: translateY(0); }
-  .wd-close { display: flex !important; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-}
+    .role-badge,
+    .filter-chip,
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
 
-/* OVERLAY */
-.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:190}
-.overlay.on{display:block}
-</style>
+    .role-badge {
+      color: var(--primary);
+      background: var(--primary-soft);
+      border-color: rgba(31, 94, 255, 0.14);
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .kpi-card {
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .kpi-label {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .kpi-value {
+      margin: 0;
+      font-size: clamp(28px, 6vw, 40px);
+      line-height: 1;
+      font-weight: 800;
+    }
+
+    .kpi-hint {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .toolbar {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .search-field {
+      width: 100%;
+      min-height: 46px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: var(--surface-muted);
+      padding: 0 14px;
+      color: var(--text);
+      outline: none;
+    }
+
+    .search-field:focus {
+      border-color: rgba(31, 94, 255, 0.4);
+      box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.1);
+    }
+
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .filter-chip {
+      background: var(--surface-muted);
+      border-color: var(--line);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .filter-chip.is-active {
+      color: var(--primary);
+      background: var(--primary-soft);
+      border-color: rgba(31, 94, 255, 0.14);
+    }
+
+    .workers-panel {
+      display: grid;
+      gap: 16px;
+    }
+
+    .section-head {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 750;
+    }
+
+    .section-copy {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .table-wrap {
+      overflow: hidden;
+    }
+
+    .worker-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .worker-table th,
+    .worker-table td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid #edf2f7;
+      vertical-align: middle;
+    }
+
+    .worker-table th {
+      color: var(--text-muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      background: var(--surface-muted);
+    }
+
+    .worker-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .worker-name {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .worker-mobile-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .worker-card {
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .worker-card-head,
+    .worker-card-body,
+    .worker-card-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .worker-card-body {
+      display: grid;
+      gap: 10px;
+    }
+
+    .worker-card-row {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .worker-card-label {
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .status-badge.present {
+      color: var(--success);
+      background: var(--success-soft);
+      border-color: rgba(19, 122, 75, 0.14);
+    }
+
+    .status-badge.absent {
+      color: var(--text-muted);
+      background: var(--surface-muted);
+      border-color: var(--line);
+    }
+
+    .empty-state,
+    .state-card {
+      padding: 28px 20px;
+      text-align: center;
+    }
+
+    .empty-state {
+      border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-muted);
+    }
+
+    .state-wrap {
+      min-height: calc(100vh - 92px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .state-card {
+      width: min(560px, 100%);
+      display: grid;
+      gap: 14px;
+    }
+
+    .state-eyebrow {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+
+    .state-title {
+      margin: 0;
+      font-size: clamp(24px, 5vw, 34px);
+      line-height: 1.1;
+    }
+
+    .state-copy {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .state-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .button {
+      min-height: 44px;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      padding: 0 16px;
+      background: var(--text);
+      color: #ffffff;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .button.secondary {
+      background: var(--surface-muted);
+      color: var(--text);
+      border-color: var(--line);
+    }
+
+    .button:focus-visible,
+    .filter-chip:focus-visible,
+    .search-field:focus-visible {
+      outline: 3px solid rgba(31, 94, 255, 0.18);
+      outline-offset: 2px;
+    }
+
+    .loading-layout {
+      display: grid;
+      gap: 12px;
+      width: min(920px, 100%);
+    }
+
+    .loading-box {
+      height: 72px;
+      border-radius: 16px;
+      background: linear-gradient(
+        90deg,
+        #eef2f6 0%,
+        #f8fafc 50%,
+        #eef2f6 100%
+      );
+      background-size: 200% 100%;
+      animation: shimmer 1.2s linear infinite;
+    }
+
+    .loading-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .is-hidden {
+      display: none !important;
+    }
+
+    .desktop-only {
+      display: none;
+    }
+
+    .muted {
+      color: var(--text-muted);
+    }
+
+    @keyframes shimmer {
+      from {
+        background-position: 200% 0;
+      }
+
+      to {
+        background-position: -200% 0;
+      }
+    }
+
+    @media (min-width: 680px) {
+      .app-shell {
+        padding: 24px;
+      }
+
+      .topbar {
+        padding: 22px;
+      }
+
+      .summary-head {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+
+      .kpi-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .loading-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (min-width: 840px) {
+      .toolbar {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .toolbar > * {
+        width: auto;
+      }
+
+      .search-field {
+        width: min(320px, 100%);
+      }
+
+      .desktop-only {
+        display: block;
+      }
+
+      .mobile-only {
+        display: none;
+      }
+    }
+  </style>
 </head>
 <body>
-
-<!-- MOBILE OVERLAY -->
-<div class="overlay" id="overlay" onclick="closeSb(); closeWd()"></div>
-
-<!-- SIDEBAR -->
-<aside class="sb" id="sb">
-  <div class="sb-logo">
-    <div class="sb-mark">S</div>
-    <div>
-      <div class="sb-brand">BauClock</div>
-      <div class="sb-sub">S.E.K. GmbH · Dashboard</div>
-    </div>
-  </div>
-
-  <div class="sb-section">
-    <div class="sb-lbl">Übersicht</div>
-    <div class="sb-item on" onclick="nav('today',this,'Heute Live','Übersicht')">
-      <span class="sb-icon">📊</span>Heute Live
-    </div>
-    <div class="sb-item" onclick="nav('analytics',this,'Analytik','Berichte')">
-      <span class="sb-icon">📈</span>Analytik
-    </div>
-  </div>
-
-  <div class="sb-section">
-    <div class="sb-lbl">Verwaltung</div>
-    <div class="sb-item" onclick="nav('workers',this,'Mitarbeiter','Verwaltung')">
-      <span class="sb-icon">👷</span>Mitarbeiter
-    </div>
-    <div class="sb-item" onclick="nav('sites',this,'Baustellen','Verwaltung')">
-      <span class="sb-icon">🏗</span>Baustellen
-    </div>
-    <div class="sb-item" onclick="nav('payments',this,'Zahlungen','Verwaltung')">
-      <span class="sb-icon">💶</span>Zahlungen
-      <span class="sb-badge">7</span>
-    </div>
-  </div>
-
-  <div class="sb-section">
-    <div class="sb-lbl">Export</div>
-    <div class="sb-item" onclick="exportDATEV()">
-      <span class="sb-icon">📄</span>DATEV Export
-    </div>
-    <div class="sb-item" onclick="exportPDF()">
-      <span class="sb-icon">🖨</span>PDF Bericht
-    </div>
-  </div>
-
-  <div class="sb-foot">
-    <div class="sb-user">
-      <div class="sb-avatar" id="uAvatar">W</div>
-      <div>
-        <div class="sb-uname" id="uName">Waldemar</div>
-        <div class="sb-urole" id="uRole">Inhaber · OWNER</div>
-      </div>
-    </div>
-  </div>
-</aside>
-
-<!-- MAIN -->
-<div class="main">
-
-  <!-- TOPBAR -->
-  <div class="tb">
-    <div class="tb-left">
-      <button class="tb-menu-btn" onclick="openSb()">☰</button>
-      <div>
-        <div class="tb-title" id="tbTitle">Heute Live</div>
-        <div class="tb-bc" id="tbBc">BauClock › Übersicht</div>
-      </div>
-    </div>
-    <div class="tb-right">
-      <div class="live-dot-wrap"><div class="live-dot"></div>Live</div>
-      <div class="tb-time" id="clockEl">--:--:--</div>
-      <button class="tb-export-btn" onclick="exportDATEV()">↓ DATEV</button>
-    </div>
-  </div>
-
-  <!-- FILTER BAR -->
-  <div class="fb">
-    <span class="fb-lbl">Zeitraum</span>
-    <div class="period-tabs">
-      <button class="pt on" onclick="setPeriod(this,'d')">Tag</button>
-      <button class="pt" onclick="setPeriod(this,'w')">Woche</button>
-      <button class="pt" onclick="setPeriod(this,'m')">Monat</button>
-      <button class="pt" onclick="setPeriod(this,'y')">Jahr</button>
-      <button class="pt" onclick="setPeriod(this,'c')">Eigener</button>
-    </div>
-    <div class="fb-sep"></div>
-    <div id="dateRange">
-      <input type="date" class="fb-date" value="2026-03-01">
-      <span style="color:var(--muted2)">—</span>
-      <input type="date" class="fb-date" value="2026-03-20">
-    </div>
-    <select class="fb-sel" onchange="filterUpdate()">
-      <option>Alle Baustellen</option>
-      <option>München-Schwabing</option>
-      <option>Berlin-Mitte</option>
-      <option>Hamburg-Nord</option>
-    </select>
-    <select class="fb-sel" onchange="filterUpdate()">
-      <option>Alle Typen</option>
-      <option>Festangestellt</option>
-      <option>Minijob</option>
-      <option>Gewerbe</option>
-      <option>Subunternehmer</option>
-    </select>
-    <select class="fb-sel" onchange="filterUpdate()">
-      <option>Alle Status</option>
-      <option>🟢 Bezahlt</option>
-      <option>🔴 Offen</option>
-      <option>⚠️ Streitig</option>
-    </select>
-  </div>
-
-  <!-- SCROLL AREA -->
-  <div class="scroll">
-
-    <!-- ══ HEUTE LIVE ══ -->
-    <div class="panel on" id="panel-today">
-
-      <div class="stats-row">
-        <div class="sc">
-          <div class="sc-lbl">Anwesend heute</div>
-          <div class="sc-val">14</div>
-          <div class="sc-sub">von 19 Mitarbeitern</div>
-          <div class="sc-bar"><div class="sc-bar-fill" style="width:74%;background:linear-gradient(90deg,var(--gold),var(--gold2))"></div></div>
-          <div class="sc-trend up">↑ +2 vs. gestern</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Stunden heute</div>
-          <div class="sc-val g">142h</div>
-          <div class="sc-sub">Ø 10.1h · alle Objekte</div>
-          <div class="sc-bar"><div class="sc-bar-fill" style="width:88%;background:linear-gradient(90deg,var(--gold),var(--gold2))"></div></div>
-          <div class="sc-trend up">↑ +8h vs. gestern</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Tageslohn (Brutto)</div>
-          <div class="sc-val gr">€2.840</div>
-          <div class="sc-sub">Alle Objekte gesamt</div>
-          <div class="sc-bar"><div class="sc-bar-fill" style="width:65%;background:linear-gradient(90deg,var(--green),#6dcfa0)"></div></div>
-          <div class="sc-trend up">↑ +€180</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Offene Zahlungen</div>
-          <div class="sc-val rd">€4.320</div>
-          <div class="sc-sub">7 Mitarbeiter ausstehend</div>
-          <div class="sc-bar"><div class="sc-bar-fill" style="width:40%;background:linear-gradient(90deg,var(--red),#f07070)"></div></div>
-          <div class="sc-trend dn">↓ Seit 5 Tagen</div>
-        </div>
-      </div>
-
-      <div class="g73">
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Live Anwesenheit</div>
-            <div class="cb gr">● 14 Aktiv</div>
+  <div class="app-shell">
+    <main class="app">
+      <section class="topbar">
+        <div class="brand-row">
+          <div class="brand">
+            <div class="brand-mark">BC</div>
+            <div class="brand-copy">
+              <p class="eyebrow">SEK Zeiterfassung</p>
+              <h1>Dashboard</h1>
+              <p class="subtitle">
+                Live-Uebersicht fuer Anwesenheit, aktive Mitarbeiter und Vertragsstunden.
+              </p>
+            </div>
           </div>
-          <div class="tbl-wrap">
-            <table>
+          <div id="sessionPill" class="session-pill">Token wird geprueft</div>
+        </div>
+      </section>
+
+      <section id="loadingState" class="state-wrap">
+        <div class="loading-layout">
+          <div class="loading-box"></div>
+          <div class="loading-grid">
+            <div class="loading-box"></div>
+            <div class="loading-box"></div>
+            <div class="loading-box"></div>
+          </div>
+          <div class="loading-box" style="height: 360px;"></div>
+        </div>
+      </section>
+
+      <section id="missingState" class="state-wrap is-hidden">
+        <div class="state-card">
+          <p class="state-eyebrow">Zugriff erforderlich</p>
+          <h2 class="state-title">Es fehlt ein gueltiger Dashboard-Link.</h2>
+          <p class="state-copy">
+            Oeffnen Sie das Dashboard ueber den Link aus dem Telegram-Bot. Der Link enthaelt
+            ein zeitlich begrenztes Zugriffstoken.
+          </p>
+          <div class="state-actions">
+            <button class="button secondary" type="button" onclick="window.location.reload()">
+              Neu laden
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="accessState" class="state-wrap is-hidden">
+        <div class="state-card">
+          <p class="state-eyebrow">Sitzung abgelaufen</p>
+          <h2 class="state-title">Der Dashboard-Zugriff ist nicht mehr gueltig.</h2>
+          <p class="state-copy">
+            Der Link fehlt, ist abgelaufen oder wurde bereits ungueltig. Fordern Sie im Bot
+            einen neuen Dashboard-Link an.
+          </p>
+          <div class="state-actions">
+            <button class="button secondary" type="button" onclick="window.location.reload()">
+              Erneut pruefen
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="networkState" class="state-wrap is-hidden">
+        <div class="state-card">
+          <p class="state-eyebrow">Verbindung fehlgeschlagen</p>
+          <h2 class="state-title">Die Dashboard-Daten konnten nicht geladen werden.</h2>
+          <p class="state-copy">
+            Pruefen Sie die Verbindung und laden Sie die Seite erneut. Wenn das Problem
+            bestehen bleibt, versuchen Sie es spaeter noch einmal.
+          </p>
+          <div class="state-actions">
+            <button class="button" type="button" onclick="loadDashboard()">
+              Erneut laden
+            </button>
+            <button class="button secondary" type="button" onclick="window.location.reload()">
+              Seite neu laden
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div id="appContent" class="content-grid is-hidden">
+        <section class="panel summary-panel">
+          <div class="summary-head">
+            <div>
+              <p class="eyebrow">Heute</p>
+              <h2 class="section-title" id="summaryHeadline">Mitarbeiteruebersicht</h2>
+              <p class="section-copy" id="summaryCopy">
+                Live-Stand fuer die aktuelle Anwesenheit.
+              </p>
+            </div>
+            <div class="summary-meta">
+              <span id="userRole" class="role-badge">Rolle</span>
+              <span id="updatedAt" class="muted">Zuletzt aktualisiert: -</span>
+            </div>
+          </div>
+
+          <div class="kpi-grid">
+            <article class="kpi-card">
+              <p class="kpi-label">Heute vor Ort</p>
+              <p class="kpi-value" id="presentCount">0</p>
+              <p class="kpi-hint" id="presentHint">Keine Mitarbeiter aktiv.</p>
+            </article>
+
+            <article class="kpi-card">
+              <p class="kpi-label">Aktive Mitarbeiter</p>
+              <p class="kpi-value" id="totalCount">0</p>
+              <p class="kpi-hint">Aktuelle Stammdaten im Dashboard.</p>
+            </article>
+
+            <article class="kpi-card">
+              <p class="kpi-label">Anwesenheitsquote</p>
+              <p class="kpi-value" id="attendanceRate">0%</p>
+              <p class="kpi-hint" id="attendanceHint">Noch keine Anwesenheitsdaten.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="toolbar">
+          <input
+            id="workerSearch"
+            class="search-field"
+            type="search"
+            placeholder="Mitarbeiter suchen"
+            autocomplete="off"
+          >
+          <div class="filter-row" role="group" aria-label="Mitarbeiter filtern">
+            <button type="button" class="filter-chip is-active" data-filter="all">Alle</button>
+            <button type="button" class="filter-chip" data-filter="present">Vor Ort</button>
+            <button type="button" class="filter-chip" data-filter="absent">Nicht vor Ort</button>
+          </div>
+        </section>
+
+        <section class="panel workers-panel">
+          <div class="section-head">
+            <h2 class="section-title">Mitarbeiter</h2>
+            <p class="section-copy" id="workerCountCopy">
+              0 Mitarbeiter sichtbar.
+            </p>
+          </div>
+
+          <div id="emptyWorkersState" class="empty-state is-hidden">
+            <h3 style="margin: 0 0 8px;">Keine Mitarbeiter gefunden</h3>
+            <p class="state-copy" id="emptyWorkersCopy" style="margin: 0;">
+              Fuer die aktuelle Auswahl liegen keine Eintraege vor.
+            </p>
+          </div>
+
+          <div id="desktopWorkers" class="desktop-only table-wrap is-hidden">
+            <table class="worker-table">
               <thead>
                 <tr>
-                  <th>Mitarbeiter <span class="sort">↕</span></th>
-                  <th>Baustelle</th>
-                  <th>Check-in</th>
-                  <th>Pause</th>
-                  <th>Stunden</th>
+                  <th>Name</th>
                   <th>Status</th>
-                  <th>Verdienst</th>
+                  <th>Typ</th>
+                  <th>Stundenlohn</th>
+                  <th>Vertragsstunden / Woche</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr>
-                  <td>Müller Ivan</td>
-                  <td class="td-mono" style="color:var(--muted2)">München</td>
-                  <td class="td-mono">07:02</td>
-                  <td class="td-mono">45min</td>
-                  <td class="td-mono">8h 12m</td>
-                  <td><span class="bdg bdg-gr">● Arbeitet</span></td>
-                  <td class="td-mono" style="color:var(--green)">€147.60</td>
-                </tr>
-                <tr>
-                  <td>Petrenko Oleg</td>
-                  <td class="td-mono" style="color:var(--muted2)">Berlin</td>
-                  <td class="td-mono">07:15</td>
-                  <td class="td-mono">30min</td>
-                  <td class="td-mono">7h 59m</td>
-                  <td><span class="bdg bdg-gr">● Arbeitet</span></td>
-                  <td class="td-mono" style="color:var(--green)">€127.84</td>
-                </tr>
-                <tr>
-                  <td>Shevchenko M.</td>
-                  <td class="td-mono" style="color:var(--muted2)">München</td>
-                  <td class="td-mono">07:30</td>
-                  <td class="td-mono">–</td>
-                  <td class="td-mono">5h 01m</td>
-                  <td><span class="bdg bdg-gd">⏸ Pause</span></td>
-                  <td class="td-mono" style="color:var(--gold)">€80.16</td>
-                </tr>
-                <tr>
-                  <td>Koval Andrii</td>
-                  <td class="td-mono" style="color:var(--muted2)">Hamburg</td>
-                  <td class="td-mono">06:55</td>
-                  <td class="td-mono">60min</td>
-                  <td class="td-mono">9h 45m</td>
-                  <td><span class="bdg bdg-rd">⚠ ArbZG!</span></td>
-                  <td class="td-mono" style="color:var(--red)">€156.00</td>
-                </tr>
-                <tr>
-                  <td>Fischer Klaus</td>
-                  <td class="td-mono" style="color:var(--muted2)">München</td>
-                  <td class="td-mono">07:45</td>
-                  <td class="td-mono">30min</td>
-                  <td class="td-mono">6h 15m</td>
-                  <td><span class="bdg bdg-am">⚠ Pause!</span></td>
-                  <td class="td-mono" style="color:var(--amber)">€93.75</td>
-                </tr>
-                <tr>
-                  <td>Schmidt Hans</td>
-                  <td class="td-mono" style="color:var(--muted2)">–</td>
-                  <td class="td-mono">–</td>
-                  <td class="td-mono">–</td>
-                  <td class="td-mono">–</td>
-                  <td><span class="bdg bdg-mu">✕ Fehlt</span></td>
-                  <td class="td-mono" style="color:var(--muted2)">–</td>
-                </tr>
-                <tr>
-                  <td>Elektro GmbH</td>
-                  <td class="td-mono" style="color:var(--muted2)">Berlin</td>
-                  <td class="td-mono">07:00</td>
-                  <td class="td-mono">–</td>
-                  <td class="td-mono">8h 00m</td>
-                  <td><span class="bdg bdg-bl">Sub · Fix</span></td>
-                  <td class="td-mono" style="color:var(--blue)">Rechnung</td>
-                </tr>
-              </tbody>
+              <tbody id="workersTableBody"></tbody>
             </table>
           </div>
-        </div>
 
-        <div style="display:flex;flex-direction:column;gap:0.9rem">
-          <div class="card">
-            <div class="ch">
-              <div class="ct">Stunden / Baustelle</div>
-              <div class="cb">Heute</div>
-            </div>
-            <div class="chart-box h180">
-              <canvas id="c-today-site"></canvas>
-            </div>
-          </div>
-          <div class="card">
-            <div class="ch">
-              <div class="ct">ArbZG Warnungen</div>
-              <div class="cb rd">2 Aktiv</div>
-            </div>
-            <div class="alert-box rd">
-              <div class="alert-title">Koval Andrii — München</div>
-              <div class="alert-desc">9h 45min ohne 45min Pause · §4 Verletzung!</div>
-            </div>
-            <div class="alert-box am">
-              <div class="alert-title">Fischer Klaus — München</div>
-              <div class="alert-desc">6h 15min · Pause empfohlen (30min)</div>
-            </div>
-          </div>
-        </div>
+          <div id="mobileWorkers" class="mobile-only worker-mobile-list is-hidden"></div>
+        </section>
       </div>
+    </main>
+  </div>
 
-    </div><!-- end today -->
-
-    <!-- ══ ANALYTIK ══ -->
-    <div class="panel" id="panel-analytics">
-
-      <div class="stats-row">
-        <div class="sc">
-          <div class="sc-lbl">Stunden gesamt (Monat)</div>
-          <div class="sc-val g">1.847h</div>
-          <div class="sc-sub">März 2026</div>
-          <div class="sc-trend up">↑ +12% vs. Februar</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Lohnkosten (Monat)</div>
-          <div class="sc-val">€28.450</div>
-          <div class="sc-sub">Brutto · alle Mitarbeiter</div>
-          <div class="sc-trend up">↑ +€2.100</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Ø Stunden / Tag</div>
-          <div class="sc-val gr">8.4h</div>
-          <div class="sc-sub">Pro Mitarbeiter</div>
-          <div class="sc-trend up">↑ +0.3h</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Überstunden offen</div>
-          <div class="sc-val rd">147h</div>
-          <div class="sc-sub">€2.940 auszuzahlen</div>
-          <div class="sc-trend dn">↓ Begleichen</div>
-        </div>
-      </div>
-
-      <div class="g2">
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Stunden pro Woche</div>
-            <div class="cb">März 2026</div>
-          </div>
-          <div class="chart-box h220">
-            <canvas id="c-weekly"></canvas>
-          </div>
-        </div>
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Lohnkosten pro Monat</div>
-            <div class="cb">2026</div>
-          </div>
-          <div class="chart-box h220">
-            <canvas id="c-monthly-cost"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <div class="g3">
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Mitarbeiter-Typen</div>
-            <div class="cb">Verteilung</div>
-          </div>
-          <div class="chart-box" style="height:200px">
-            <canvas id="c-types"></canvas>
-          </div>
-        </div>
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Stunden pro Baustelle</div>
-            <div class="cb">Monat</div>
-          </div>
-          <div class="chart-box" style="height:200px">
-            <canvas id="c-site-hours"></canvas>
-          </div>
-        </div>
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Aktivität Heatmap</div>
-            <div class="cb">Wochentage</div>
-          </div>
-          <div style="display:flex;gap:0.25rem;margin-bottom:0.35rem">
-            <span style="font-size:0.58rem;color:var(--muted2);flex:1;text-align:center">Mo</span>
-            <span style="font-size:0.58rem;color:var(--muted2);flex:1;text-align:center">Di</span>
-            <span style="font-size:0.58rem;color:var(--muted2);flex:1;text-align:center">Mi</span>
-            <span style="font-size:0.58rem;color:var(--muted2);flex:1;text-align:center">Do</span>
-            <span style="font-size:0.58rem;color:var(--muted2);flex:1;text-align:center">Fr</span>
-            <span style="font-size:0.58rem;color:var(--muted2);flex:1;text-align:center">Sa</span>
-            <span style="font-size:0.58rem;color:var(--muted2);flex:1;text-align:center">So</span>
-          </div>
-          <div class="hm-grid" id="heatmap"></div>
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem">
-            <span style="font-size:0.6rem;color:var(--muted2)">Wenig</span>
-            <div style="flex:1;height:3px;background:linear-gradient(90deg,rgba(201,168,76,0.1),var(--gold));border-radius:2px"></div>
-            <span style="font-size:0.6rem;color:var(--muted2)">Viel</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="ch">
-          <div class="ct">Jahresvergleich — Stunden</div>
-          <div class="cb">2025 vs 2026</div>
-        </div>
-        <div class="chart-box h260">
-          <canvas id="c-year-compare"></canvas>
-        </div>
-      </div>
-
-    </div><!-- end analytics -->
-
-    <!-- ══ MITARBEITER ══ -->
-    <div class="panel" id="panel-workers">
-      <div class="g37">
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Mitarbeiter</div>
-            <div class="cb">19 Gesamt</div>
-          </div>
-          <div class="search-wrap" style="margin-bottom:0.85rem">
-            <span class="search-ico">🔍</span>
-            <input class="search-inp" type="text" placeholder="Name suchen..." oninput="filterWorkers(this.value)">
-          </div>
-          <div id="workerList"></div>
-        </div>
-
-        <div class="wd-wrap" id="wdWrap">
-          <button class="wd-close" onclick="closeWd()" style="display:none;position:absolute;top:1rem;right:1rem;background:var(--s3);border:1px solid var(--border);color:var(--light);width:36px;height:36px;border-radius:50%;cursor:pointer;z-index:10;font-size:1.2rem;align-items:center;justify-content:center">✕</button>
-          <div class="card" id="workerDetailCard">
-            <div class="ch">
-              <div class="ct" id="wdName">Mitarbeiter wählen</div>
-              <div class="cb gd" id="wdType">–</div>
-            </div>
-            <div id="wdContent" style="color:var(--muted);font-size:0.82rem">
-              Klicken Sie auf einen Mitarbeiter um Details zu sehen.
-            </div>
-          </div>
-          <div class="card" id="workerChartCard" style="display:none">
-            <div class="ch">
-              <div class="ct">Stunden (letzte 8 Wochen)</div>
-            </div>
-            <div class="chart-box h180">
-              <canvas id="c-worker-hours"></canvas>
-            </div>
-          </div>
-          <div class="card" id="workerPayCard" style="display:none">
-            <div class="ch">
-              <div class="ct">Zahlungen</div>
-              <div class="cb">Geschichte</div>
-            </div>
-            <div id="wdPayments"></div>
-          </div>
-        </div>
-      </div>
-    </div><!-- end workers -->
-
-    <!-- ══ BAUSTELLEN ══ -->
-    <div class="panel" id="panel-sites">
-      <div class="stats-row">
-        <div class="sc">
-          <div class="sc-lbl">Aktive Baustellen</div>
-          <div class="sc-val g">3</div>
-          <div class="sc-sub">Deutschland</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Gesamt-Stunden</div>
-          <div class="sc-val">1.847h</div>
-          <div class="sc-sub">Alle Objekte · Monat</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Aktive Mitarbeiter</div>
-          <div class="sc-val gr">19</div>
-          <div class="sc-sub">Auf allen Baustellen</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Subunternehmer</div>
-          <div class="sc-val rd">4</div>
-          <div class="sc-sub">Auf 2 Baustellen</div>
-        </div>
-      </div>
-
-      <div class="g3">
-        <div class="site-c" onclick="selectSite('münchen')">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
-            <span class="bdg bdg-gr">● Aktiv</span>
-            <span style="font-size:0.65rem;color:var(--muted2)">seit 01.01.2026</span>
-          </div>
-          <div class="site-name">München-Schwabing</div>
-          <div class="site-addr">📍 Leopoldstraße 42, 80802 München</div>
-          <div class="site-stats">
-            <div>
-              <div class="ss-l">Mitarbeiter</div>
-              <div class="ss-v" style="color:var(--green)">8</div>
-            </div>
-            <div>
-              <div class="ss-l">Stunden/Mo</div>
-              <div class="ss-v" style="color:var(--gold)">642h</div>
-            </div>
-            <div>
-              <div class="ss-l">Lohnkosten</div>
-              <div class="ss-v" style="color:var(--light)">€11.2k</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="site-c" onclick="selectSite('berlin')">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
-            <span class="bdg bdg-gr">● Aktiv</span>
-            <span style="font-size:0.65rem;color:var(--muted2)">seit 15.02.2026</span>
-          </div>
-          <div class="site-name">Berlin-Mitte</div>
-          <div class="site-addr">📍 Unter den Linden 1, 10117 Berlin</div>
-          <div class="site-stats">
-            <div>
-              <div class="ss-l">Mitarbeiter</div>
-              <div class="ss-v" style="color:var(--green)">7</div>
-            </div>
-            <div>
-              <div class="ss-l">Stunden/Mo</div>
-              <div class="ss-v" style="color:var(--gold)">578h</div>
-            </div>
-            <div>
-              <div class="ss-l">Lohnkosten</div>
-              <div class="ss-v" style="color:var(--light)">€9.8k</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="site-c" onclick="selectSite('hamburg')">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
-            <span class="bdg bdg-gd">◑ Neu</span>
-            <span style="font-size:0.65rem;color:var(--muted2)">seit 10.03.2026</span>
-          </div>
-          <div class="site-name">Hamburg-Nord</div>
-          <div class="site-addr">📍 Alstertor 12, 20095 Hamburg</div>
-          <div class="site-stats">
-            <div>
-              <div class="ss-l">Mitarbeiter</div>
-              <div class="ss-v" style="color:var(--green)">4</div>
-            </div>
-            <div>
-              <div class="ss-l">Stunden/Mo</div>
-              <div class="ss-v" style="color:var(--gold)">247h</div>
-            </div>
-            <div>
-              <div class="ss-l">Lohnkosten</div>
-              <div class="ss-v" style="color:var(--light)">€4.1k</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="g2">
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Stunden Vergleich</div>
-            <div class="cb">Pro Baustelle</div>
-          </div>
-          <div class="chart-box h220">
-            <canvas id="c-sites-compare"></canvas>
-          </div>
-        </div>
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Lohnkosten Vergleich</div>
-            <div class="cb">Pro Baustelle</div>
-          </div>
-          <div class="chart-box h220">
-            <canvas id="c-sites-cost"></canvas>
-          </div>
-        </div>
-      </div>
-    </div><!-- end sites -->
-
-    <!-- ══ ZAHLUNGEN ══ -->
-    <div class="panel" id="panel-payments">
-      <div class="stats-row">
-        <div class="sc">
-          <div class="sc-lbl">Offen gesamt</div>
-          <div class="sc-val rd">€4.320</div>
-          <div class="sc-sub">7 Mitarbeiter</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Bezahlt (Monat)</div>
-          <div class="sc-val gr">€24.130</div>
-          <div class="sc-sub">12 Mitarbeiter · März</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Streitig</div>
-          <div class="sc-val rd">1</div>
-          <div class="sc-sub">Petrenko · €240</div>
-        </div>
-        <div class="sc">
-          <div class="sc-lbl">Nächste Auszahlung</div>
-          <div class="sc-val g">Fr 21.03</div>
-          <div class="sc-sub">Morgen</div>
-        </div>
-      </div>
-
-      <div class="g2">
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Ausstehende Zahlungen</div>
-            <div class="cb rd">7 Offen</div>
-          </div>
-          <div id="payPending"></div>
-        </div>
-        <div class="card">
-          <div class="ch">
-            <div class="ct">Letzte Zahlungen</div>
-            <div class="cb gr">Bestätigt</div>
-          </div>
-          <div id="payDone"></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="ch">
-          <div class="ct">Zahlungsverlauf</div>
-          <div class="cb">Monatlich</div>
-        </div>
-        <div class="chart-box h220">
-          <canvas id="c-payments-history"></canvas>
-        </div>
-      </div>
-    </div><!-- end payments -->
-
-  </div><!-- end scroll -->
-</div><!-- end main -->
-
-<script>
-// ══ CHART.JS DEFAULTS ══
-Chart.defaults.color='rgba(240,235,224,0.4)';
-Chart.defaults.borderColor='rgba(240,235,224,0.06)';
-Chart.defaults.font.family="'Barlow',sans-serif";
-Chart.defaults.font.size=11;
-
-const GOLD='#c9a84c',GOLD2='#e8c96a',GREEN='#4caf7d',RED='#e05050',BLUE='#5096e0',AMBER='#e09050';
-
-function makeGrad(ctx,c1,c2){
-  const g=ctx.createLinearGradient(0,0,0,300);
-  g.addColorStop(0,c1);g.addColorStop(1,c2);return g;
-}
-
-// ══ CLOCK ══
-function clock(){
-  const d=new Date();
-  document.getElementById('clockEl').textContent=
-    d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-}
-setInterval(clock,1000);clock();
-
-// ══ NAVIGATION ══
-function nav(id,el,title,bc){
-  document.querySelectorAll('.sb-item').forEach(i=>i.classList.remove('on'));
-  el.classList.add('on');
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));
-  document.getElementById('panel-'+id).classList.add('on');
-  document.getElementById('tbTitle').textContent=title;
-  document.getElementById('tbBc').textContent='BauClock › '+bc+' › '+title;
-  if(window.innerWidth<=900)closeSb();
-  // init charts lazily
-  setTimeout(()=>initCharts(id),50);
-}
-
-// ══ SIDEBAR MOBILE ══
-function openSb(){document.getElementById('sb').classList.add('open');document.getElementById('overlay').classList.add('on')}
-function closeSb(){document.getElementById('sb').classList.remove('open');document.getElementById('overlay').classList.remove('on')}
-
-function closeWd(){
-  document.getElementById('wdWrap').classList.remove('open');
-  document.getElementById('overlay').classList.remove('on');
-}
-
-// ══ PERIOD ══
-function setPeriod(el,p){
-  document.querySelectorAll('.pt').forEach(t=>t.classList.remove('on'));
-  el.classList.add('on');
-  document.getElementById('dateRange').classList.toggle('show',p==='c');
-}
-function filterUpdate(){console.log('filter changed')}
-
-// ══ CHARTS (lazy init) ══
-const chartsInited={};
-function initCharts(panel){
-  if(chartsInited[panel])return;
-  chartsInited[panel]=true;
-
-  if(panel==='today'){
-    // Today by site
-    new Chart(document.getElementById('c-today-site'),{
-      type:'bar',
-      data:{
-        labels:['München','Berlin','Hamburg'],
-        datasets:[{
-          label:'Stunden',
-          data:[62,54,26],
-          backgroundColor:[GOLD+'99',GREEN+'99',BLUE+'99'],
-          borderColor:[GOLD,GREEN,BLUE],
-          borderWidth:1,borderRadius:2,
-        }]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-    });
-  }
-
-  if(panel==='analytics'){
-    // Weekly hours
-    const wCtx=document.getElementById('c-weekly').getContext('2d');
-    new Chart(wCtx,{
-      type:'line',
-      data:{
-        labels:['KW 9','KW 10','KW 11','KW 12','KW 13'],
-        datasets:[{
-          label:'Stunden',
-          data:[398,425,412,462,150],
-          borderColor:GOLD,
-          backgroundColor:makeGrad(wCtx,GOLD+'33','transparent'),
-          borderWidth:2,pointRadius:4,pointBackgroundColor:GOLD,
-          fill:true,tension:0.4,
-        }]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-    });
-
-    // Monthly cost
-    const mCtx=document.getElementById('c-monthly-cost').getContext('2d');
-    new Chart(mCtx,{
-      type:'bar',
-      data:{
-        labels:['Jan','Feb','Mär'],
-        datasets:[
-          {label:'🟢 Bezahlt',data:[22100,24800,24130],backgroundColor:GREEN+'88',borderColor:GREEN,borderWidth:1,borderRadius:2},
-          {label:'🔴 Offen',data:[3200,2100,4320],backgroundColor:RED+'88',borderColor:RED,borderWidth:1,borderRadius:2},
-        ]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{x:{grid:{display:false},stacked:false},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-    });
-
-    // Types donut
-    new Chart(document.getElementById('c-types'),{
-      type:'doughnut',
-      data:{
-        labels:['Festangestellt','Minijob','Gewerbe','Sub'],
-        datasets:[{data:[10,4,3,2],backgroundColor:[GOLD+'cc',GREEN+'cc',BLUE+'cc',AMBER+'cc'],borderWidth:0,hoverOffset:6}]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},cutout:'65%'}
-    });
-
-    // Site hours bar
-    new Chart(document.getElementById('c-site-hours'),{
-      type:'bar',
-      data:{
-        labels:['München','Berlin','Hamburg'],
-        datasets:[{label:'Stunden',data:[642,578,247],backgroundColor:[GOLD+'99',GREEN+'99',BLUE+'99'],borderColor:[GOLD,GREEN,BLUE],borderWidth:1,borderRadius:2}]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},indexAxis:'y',scales:{x:{grid:{color:'rgba(255,255,255,0.04)'}},y:{grid:{display:false}}}}
-    });
-
-    // Heatmap
-    buildHeatmap();
-
-    // Year compare
-    const ycCtx=document.getElementById('c-year-compare').getContext('2d');
-    new Chart(ycCtx,{
-      type:'line',
-      data:{
-        labels:['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'],
-        datasets:[
-          {label:'2025',data:[820,780,900,850,920,940,880,860,910,930,870,790],borderColor:GOLD+'66',backgroundColor:'transparent',borderWidth:1.5,pointRadius:3,pointBackgroundColor:GOLD+'66',tension:0.4},
-          {label:'2026',data:[860,940,1847,null,null,null,null,null,null,null,null,null],borderColor:GOLD,backgroundColor:makeGrad(ycCtx,GOLD+'22','transparent'),fill:true,borderWidth:2,pointRadius:4,pointBackgroundColor:GOLD,tension:0.4},
-        ]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-    });
-  }
-
-  if(panel==='sites'){
-    // Sites compare
-    const months=['Jan','Feb','Mär'];
-    new Chart(document.getElementById('c-sites-compare'),{
-      type:'bar',
-      data:{
-        labels:months,
-        datasets:[
-          {label:'München',data:[580,610,642],backgroundColor:GOLD+'88',borderColor:GOLD,borderWidth:1,borderRadius:2},
-          {label:'Berlin',data:[420,510,578],backgroundColor:GREEN+'88',borderColor:GREEN,borderWidth:1,borderRadius:2},
-          {label:'Hamburg',data:[0,0,247],backgroundColor:BLUE+'88',borderColor:BLUE,borderWidth:1,borderRadius:2},
-        ]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-    });
-    new Chart(document.getElementById('c-sites-cost'),{
-      type:'line',
-      data:{
-        labels:months,
-        datasets:[
-          {label:'München',data:[9800,10400,11200],borderColor:GOLD,backgroundColor:'transparent',borderWidth:2,pointRadius:4,pointBackgroundColor:GOLD,tension:0.4},
-          {label:'Berlin',data:[7100,8700,9800],borderColor:GREEN,backgroundColor:'transparent',borderWidth:2,pointRadius:4,pointBackgroundColor:GREEN,tension:0.4},
-          {label:'Hamburg',data:[0,0,4100],borderColor:BLUE,backgroundColor:'transparent',borderWidth:2,pointRadius:4,pointBackgroundColor:BLUE,tension:0.4},
-        ]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-    });
-  }
-
-  if(panel==='payments'){
-    const phCtx=document.getElementById('c-payments-history').getContext('2d');
-    new Chart(phCtx,{
-      type:'bar',
-      data:{
-        labels:['Jan','Feb','Mär'],
-        datasets:[
-          {label:'Bezahlt',data:[22100,24800,24130],backgroundColor:GREEN+'88',borderColor:GREEN,borderWidth:1,borderRadius:2},
-          {label:'Offen',data:[3200,2100,4320],backgroundColor:RED+'88',borderColor:RED,borderWidth:1,borderRadius:2},
-        ]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-    });
-  }
-}
-
-// ══ HEATMAP ══
-function buildHeatmap(){
-  const el=document.getElementById('heatmap');
-  if(!el)return;
-  const data=[0.9,0.8,0.95,0.85,0.7,0.2,0.1, 0.88,0.92,0.87,0.9,0.75,0.15,0.05, 0.91,0.85,0.93,0.88,0.8,0.25,0.08, 0.7,0.78,0.8,0.75,0.65,0.1,0.0];
-  el.innerHTML='';
-  data.forEach(v=>{
-    const d=document.createElement('div');
-    d.className='hm-cell';
-    const a=Math.max(0.05,v);
-    d.style.background=`rgba(201,168,76,${a})`;
-    d.title=`${Math.round(v*100)}% Auslastung`;
-    el.appendChild(d);
-  });
-}
-
-// ══ WORKERS LIST ══
-const workers=[
-  {id:1,name:'Müller Ivan',type:'Festangestellt',site:'München',contract_h:80,hours_green:32,hours_red:8,rate:18,status:'Arbeitet'},
-  {id:2,name:'Petrenko Oleg',type:'Festangestellt',site:'Berlin',contract_h:80,hours_green:58,hours_red:0,rate:16,status:'Arbeitet'},
-  {id:3,name:'Shevchenko M.',type:'Festangestellt',site:'München',contract_h:60,hours_green:15,hours_red:15,rate:16,status:'Pause'},
-  {id:4,name:'Koval Andrii',type:'Minijob',site:'Hamburg',contract_h:0,hours_green:32,hours_red:0,rate:16,status:'ArbZG!'},
-  {id:5,name:'Fischer Klaus',type:'Festangestellt',site:'München',contract_h:80,hours_green:5,hours_red:5,rate:15,status:'Arbeitet'},
-  {id:6,name:'Schmidt Hans',type:'Minijob',site:'–',contract_h:0,hours_green:16,hours_red:0,rate:14,status:'Fehlt'},
-  {id:7,name:'Elektro GmbH',type:'Subunternehmer',site:'Berlin',contract_h:0,hours_green:80,hours_red:0,rate:0,status:'Aktiv'},
-];
-
-let selWorker=null;
-
-function renderWorkerList(filter=''){
-  const list=document.getElementById('workerList');
-  if(!list)return;
-  const filtered=workers.filter(w=>w.name.toLowerCase().includes(filter.toLowerCase()));
-  list.innerHTML=filtered.map(w=>{
-    const totalH=w.hours_green+w.hours_red;
-    const statusColors={
-      'Arbeitet':'var(--green)','Pause':'var(--gold)','ArbZG!':'var(--red)',
-      'Fehlt':'var(--muted2)','Aktiv':'var(--blue)'
+  <script>
+    const elements = {
+      sessionPill: document.getElementById("sessionPill"),
+      loadingState: document.getElementById("loadingState"),
+      missingState: document.getElementById("missingState"),
+      accessState: document.getElementById("accessState"),
+      networkState: document.getElementById("networkState"),
+      appContent: document.getElementById("appContent"),
+      summaryHeadline: document.getElementById("summaryHeadline"),
+      summaryCopy: document.getElementById("summaryCopy"),
+      userRole: document.getElementById("userRole"),
+      updatedAt: document.getElementById("updatedAt"),
+      presentCount: document.getElementById("presentCount"),
+      presentHint: document.getElementById("presentHint"),
+      totalCount: document.getElementById("totalCount"),
+      attendanceRate: document.getElementById("attendanceRate"),
+      attendanceHint: document.getElementById("attendanceHint"),
+      workerSearch: document.getElementById("workerSearch"),
+      workerCountCopy: document.getElementById("workerCountCopy"),
+      emptyWorkersState: document.getElementById("emptyWorkersState"),
+      emptyWorkersCopy: document.getElementById("emptyWorkersCopy"),
+      desktopWorkers: document.getElementById("desktopWorkers"),
+      mobileWorkers: document.getElementById("mobileWorkers"),
+      workersTableBody: document.getElementById("workersTableBody"),
+      filterButtons: Array.from(document.querySelectorAll("[data-filter]")),
     };
-    const sc=statusColors[w.status]||'var(--muted)';
-    return `<div class="wr${selWorker&&selWorker.id===w.id?' sel':''}" onclick="selectWorker(${w.id})">
-      <div class="wa">${w.name[0]}</div>
-      <div class="wi">
-        <div class="wn">${w.name}</div>
-        <div class="wm">${w.type} · ${w.site}</div>
-      </div>
-      <div class="wh">
-        <div class="wh-v">${totalH}h</div>
-        ${w.type==='Festangestellt'?`
-          <div class="wh-s" style="color:#5096e0">🔵${w.contract_h||0}h</div>
-          <div class="wh-s" style="color:var(--green)">🟢${w.hours_green}h</div>
-          ${w.hours_red>0?`<div class="wh-s" style="color:var(--red)">🔴${w.hours_red}h</div>`:''}
-        `:`
-          <div class="wh-s" style="color:var(--green)">🟢${w.hours_green}h</div>
-          ${w.hours_red>0?`<div class="wh-s" style="color:var(--red)">🔴${w.hours_red}h</div>`:''}
-        `}
-      </div>
-    </div>`;
-  }).join('');
-}
 
-function filterWorkers(v){renderWorkerList(v)}
+    let dashboardData = null;
+    let currentFilter = "all";
+    let currentSearch = "";
 
-function selectWorker(id){
-  selWorker=workers.find(w=>w.id===id);
-  if(!selWorker)return;
-  renderWorkerList(document.querySelector('.search-inp')?.value||'');
-  
-  // Show bottom sheet on mobile
-  if(window.innerWidth <= 767) {
-    document.getElementById('wdWrap').classList.add('open');
-    document.getElementById('overlay').classList.add('on');
-  }
+    function showState(activeId) {
+      [
+        elements.loadingState,
+        elements.missingState,
+        elements.accessState,
+        elements.networkState,
+        elements.appContent,
+      ].forEach((node) => {
+        node.classList.toggle("is-hidden", node.id !== activeId);
+      });
+    }
 
-  document.getElementById('wdName').textContent=selWorker.name;
-  document.getElementById('wdType').textContent=selWorker.type;
-  const totalH=selWorker.contract_h+selWorker.hours_green+selWorker.hours_red;
-  const contractEarned=(selWorker.contract_h||0)*selWorker.rate;
-  const overtimePaid=selWorker.hours_green*selWorker.rate;
-  const overtimeOpen=selWorker.hours_red*selWorker.rate;
-  document.getElementById('wdContent').innerHTML=`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem">
-      <div><div class="sc-lbl">Baustelle</div><div style="font-size:0.85rem">${selWorker.site}</div></div>
-      <div><div class="sc-lbl">Typ</div><div style="font-size:0.85rem">${selWorker.type}</div></div>
-    </div>
-    ${selWorker.type==='Festangestellt'?`
-    <div style="background:var(--s3);padding:0.85rem;margin-bottom:0.75rem;border-left:3px solid #5096e0">
-      <div style="font-size:0.62rem;letter-spacing:0.15em;text-transform:uppercase;color:#5096e0;margin-bottom:0.5rem">🔵 Vertraglich (offiziell · DATEV)</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
-        <div><div class="sc-lbl">Stunden</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;color:#5096e0">${selWorker.contract_h}h</div></div>
-        <div><div class="sc-lbl">Betrag</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;color:#5096e0">€${contractEarned.toFixed(0)}</div></div>
-      </div>
-    </div>
-    <div style="background:var(--s3);padding:0.85rem;margin-bottom:0.75rem;border-left:3px solid var(--green)">
-      <div style="font-size:0.62rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--green);margin-bottom:0.5rem">🟢 Überstunden bezahlt (Bar · bestätigt)</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
-        <div><div class="sc-lbl">Stunden</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;color:var(--green)">${selWorker.hours_green}h</div></div>
-        <div><div class="sc-lbl">Betrag</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;color:var(--green)">€${overtimePaid.toFixed(0)}</div></div>
-      </div>
-    </div>
-    ${selWorker.hours_red>0?`
-    <div style="background:var(--s3);padding:0.85rem;margin-bottom:0.75rem;border-left:3px solid var(--red)">
-      <div style="font-size:0.62rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--red);margin-bottom:0.5rem">🔴 Überstunden offen (Bar · ausstehend)</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
-        <div><div class="sc-lbl">Stunden</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;color:var(--red)">${selWorker.hours_red}h</div></div>
-        <div><div class="sc-lbl">Betrag</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:700;color:var(--red)">€${overtimeOpen.toFixed(0)}</div></div>
-      </div>
-    </div>`:''}
-    `:`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem">
-      <div><div class="sc-lbl">🟢 Bezahlte Std</div><div style="font-size:1.1rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--green)">${selWorker.hours_green}h · €${overtimePaid.toFixed(0)}</div></div>
-      ${selWorker.hours_red>0?`<div><div class="sc-lbl">🔴 Offene Std</div><div style="font-size:1.1rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--red)">${selWorker.hours_red}h · €${overtimeOpen.toFixed(0)}</div></div>`:''}
-    </div>
-    `}
-    <div class="sc-lbl" style="margin-bottom:0.3rem">Auslastung (Monat)</div>
-    <div class="pbar"><div class="pbar-f" style="width:${Math.min(100,(totalH/160)*100)}%;background:linear-gradient(90deg,var(--gold),var(--gold2))"></div></div>
-    <div style="font-size:0.68rem;color:var(--muted2);margin-top:0.25rem">${totalH}h von ~160h (Monat)</div>
-    ${selWorker.type==='Minijob'?`<div class="alert-box am" style="margin-top:0.75rem"><div class="alert-title">Minijob Monitor</div><div class="alert-desc">€${overtimePaid.toFixed(0)} / €538 Limit (${Math.round(overtimePaid/538*100)}%)</div></div>`:''}
-  `;
-  document.getElementById('workerChartCard').style.display='block';
-  document.getElementById('workerPayCard').style.display='block';
+    function setSessionState(text, tone) {
+      elements.sessionPill.textContent = text;
+      elements.sessionPill.classList.remove("success", "warning", "danger");
+      if (tone) {
+        elements.sessionPill.classList.add(tone);
+      }
+    }
 
-  // Worker chart
-  const cid='c-worker-hours';
-  if(Chart.getChart(cid))Chart.getChart(cid).destroy();
-  const wCtx=document.getElementById(cid).getContext('2d');
-  const wData=[38,42,45,40,38,44,41,selWorker.hours_green+selWorker.hours_red>0?Math.floor((selWorker.hours_green+selWorker.hours_red)/4):38];
-  new Chart(wCtx,{
-    type:'bar',
-    data:{
-      labels:['KW5','KW6','KW7','KW8','KW9','KW10','KW11','KW12'],
-      datasets:[{label:'Stunden',data:wData,backgroundColor:GOLD+'88',borderColor:GOLD,borderWidth:1,borderRadius:2}]
-    },
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'}}}}
-  });
+    function getToken() {
+      const value = new URLSearchParams(window.location.search).get("token");
+      return value ? value.trim() : "";
+    }
 
-  // Payments
-  document.getElementById('wdPayments').innerHTML=`
-    <div class="pay-row">
-      <div class="pay-info"><div class="pay-name">KW 9–10 · 2026</div><div class="pay-period">01.03 – 14.03</div><div class="pay-hours">38h × €${selWorker.rate}</div></div>
-      <div class="pay-amt" style="color:var(--green)">€${(38*selWorker.rate).toFixed(2)}</div>
-      <div><span class="bdg bdg-gr">✓ Bestätigt</span></div>
-    </div>
-    <div class="pay-row">
-      <div class="pay-info"><div class="pay-name">KW 11–12 · 2026</div><div class="pay-period">15.03 – 21.03</div><div class="pay-hours">${selWorker.hours_red}h × €${selWorker.rate}</div></div>
-      <div class="pay-amt" style="color:var(--red)">€${(selWorker.hours_red*selWorker.rate).toFixed(2)}</div>
-      <button class="pay-btn" onclick="confirmPayment(event,${selWorker.id})">→ Auszahlen</button>
-    </div>
-  `;
-}
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
 
-function confirmPayment(e,id){
-  e.stopPropagation();
-  if(confirm('Zahlung bestätigen und Anfrage an Mitarbeiter senden?')){
-    alert('✅ Bestätigungsanfrage wurde an den Mitarbeiter gesendet.');
-  }
-}
+    function formatCurrency(value) {
+      return new Intl.NumberFormat("de-DE", {
+        style: "currency",
+        currency: "EUR",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Number(value || 0));
+    }
 
-// ══ PAYMENTS LISTS ══
-function renderPayments(){
-  const pending=document.getElementById('payPending');
-  const done=document.getElementById('payDone');
-  if(!pending||!done)return;
-  const pendingData=[
-    {name:'Müller Ivan',period:'KW 11–12',hours:8,rate:18,amt:144,days:2},
-    {name:'Shevchenko M.',period:'KW 10–12',hours:15,rate:16,amt:240,days:5},
-    {name:'Koval Andrii',period:'KW 12',hours:38,rate:16,amt:608,days:3},
-    {name:'Fischer Klaus',period:'KW 11–12',hours:5,rate:15,amt:75,days:1},
-  ];
-  pending.innerHTML=pendingData.map(p=>`
-    <div class="pay-row">
-      <div class="pay-info">
-        <div class="pay-name">${p.name}</div>
-        <div class="pay-period">${p.period} · ${p.days} Tage offen</div>
-        <div class="pay-hours">${p.hours}h × €${p.rate}</div>
-      </div>
-      <div class="pay-amt" style="color:var(--red)">€${p.amt}</div>
-      <button class="pay-btn" onclick="alert('Anfrage gesendet!')">→ Zahlen</button>
-    </div>
-  `).join('');
+    function formatRole(value) {
+      if (value === "OWNER") {
+        return "Owner";
+      }
+      if (value === "SUPERVISOR") {
+        return "Supervisor";
+      }
+      return "Dashboard";
+    }
 
-  const doneData=[
-    {name:'Petrenko Oleg',period:'KW 9–10',amt:608,date:'14.03'},
-    {name:'Müller Ivan',period:'KW 9–10',amt:684,date:'14.03'},
-    {name:'Schmidt Hans',period:'KW 9–10',amt:228,date:'14.03'},
-  ];
-  done.innerHTML=doneData.map(d=>`
-    <div class="pay-row">
-      <div class="pay-info">
-        <div class="pay-name">${d.name}</div>
-        <div class="pay-period">${d.period} · ${d.date}</div>
-      </div>
-      <div class="pay-amt" style="color:var(--green)">€${d.amt}</div>
-      <span class="bdg bdg-gr">✓ OK</span>
-    </div>
-  `).join('');
-}
+    function formatWorkerType(value) {
+      const labels = {
+        FESTANGESTELLT: "Festangestellt",
+        MINIJOB: "Minijob",
+        GEWERBE: "Gewerbe",
+        SUBUNTERNEHMER: "Subunternehmer",
+      };
+      return labels[value] || String(value || "-");
+    }
 
-// ══ SITE DETAIL ══
-function selectSite(s){
-  alert(`Baustelle "${s}" — Detailansicht kommt als nächstes Feature.`);
-}
+    function formatUpdatedAt() {
+      return new Intl.DateTimeFormat("de-DE", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date());
+    }
 
-// ══ EXPORT ══
-function exportDATEV(){alert('DATEV ASCII Export wird generiert...\n\nDatei: DATEV_SEK_März2026.csv')}
-function exportPDF(){alert('PDF Wochenbericht wird generiert...')}
+    function toPercent(part, total) {
+      if (!total) {
+        return 0;
+      }
+      return Math.round((part / total) * 100);
+    }
 
-// ══ INIT ══
-window.addEventListener('DOMContentLoaded',()=>{
-  initCharts('today');
-  renderWorkerList();
-  renderPayments();
-});
-</script>
+    function normaliseData(payload) {
+      const user = payload && typeof payload === "object" ? payload.user || {} : {};
+      const today = payload && typeof payload === "object" ? payload.today || {} : {};
+      const workers = Array.isArray(payload?.workers) ? payload.workers : [];
+
+      return {
+        user: {
+          name: String(user.name || "Dashboard"),
+          role: String(user.role || ""),
+        },
+        today: {
+          present: Number(today.present || 0),
+          total_workers: Number(today.total_workers || 0),
+        },
+        workers: workers.map((worker) => ({
+          id: Number(worker.id || 0),
+          name: String(worker.name || "Unbekannt"),
+          type: String(worker.type || ""),
+          rate: Number(worker.rate || 0),
+          contract_hours_week: Number(worker.contract_hours_week || 0),
+          present_today: Boolean(worker.present_today),
+        })),
+      };
+    }
+
+    function getFilteredWorkers() {
+      if (!dashboardData) {
+        return [];
+      }
+
+      const searchValue = currentSearch.trim().toLowerCase();
+
+      return [...dashboardData.workers]
+        .filter((worker) => {
+          if (currentFilter === "present") {
+            return worker.present_today;
+          }
+          if (currentFilter === "absent") {
+            return !worker.present_today;
+          }
+          return true;
+        })
+        .filter((worker) => {
+          if (!searchValue) {
+            return true;
+          }
+          return (
+            worker.name.toLowerCase().includes(searchValue) ||
+            formatWorkerType(worker.type).toLowerCase().includes(searchValue)
+          );
+        })
+        .sort((left, right) => {
+          if (left.present_today !== right.present_today) {
+            return left.present_today ? -1 : 1;
+          }
+          return left.name.localeCompare(right.name, "de");
+        });
+    }
+
+    function renderSummary(data) {
+      const present = data.today.present;
+      const total = data.today.total_workers;
+      const absent = Math.max(total - present, 0);
+      const attendanceRate = toPercent(present, total);
+
+      elements.summaryHeadline.textContent = data.user.name;
+      elements.summaryCopy.textContent =
+        total > 0
+          ? `${present} von ${total} aktiven Mitarbeitern sind heute vor Ort.`
+          : "Noch keine aktiven Mitarbeiter fuer dieses Dashboard.";
+      elements.userRole.textContent = formatRole(data.user.role);
+      elements.presentCount.textContent = String(present);
+      elements.presentHint.textContent =
+        absent > 0
+          ? `${absent} Mitarbeiter sind aktuell nicht vor Ort.`
+          : "Alle aktiven Mitarbeiter sind aktuell vor Ort.";
+      elements.totalCount.textContent = String(total);
+      elements.attendanceRate.textContent = `${attendanceRate}%`;
+      elements.attendanceHint.textContent =
+        total > 0
+          ? `${attendanceRate}% der aktiven Mitarbeiter sind heute anwesend.`
+          : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Quote.";
+      elements.updatedAt.textContent = `Zuletzt aktualisiert: ${formatUpdatedAt()}`;
+    }
+
+    function renderWorkers() {
+      const totalWorkers = dashboardData ? dashboardData.workers.length : 0;
+      const filteredWorkers = getFilteredWorkers();
+
+      elements.workerCountCopy.textContent =
+        filteredWorkers.length === 1
+          ? "1 Mitarbeiter sichtbar."
+          : `${filteredWorkers.length} Mitarbeiter sichtbar.`;
+
+      if (!totalWorkers) {
+        elements.emptyWorkersCopy.textContent =
+          "Noch keine aktiven Mitarbeiter vorhanden.";
+        elements.emptyWorkersState.classList.remove("is-hidden");
+        elements.desktopWorkers.classList.add("is-hidden");
+        elements.mobileWorkers.classList.add("is-hidden");
+        elements.workersTableBody.innerHTML = "";
+        elements.mobileWorkers.innerHTML = "";
+        return;
+      }
+
+      if (!filteredWorkers.length) {
+        elements.emptyWorkersCopy.textContent =
+          "Keine Treffer fuer die aktuelle Suche oder den gewaehlten Filter.";
+        elements.emptyWorkersState.classList.remove("is-hidden");
+        elements.desktopWorkers.classList.add("is-hidden");
+        elements.mobileWorkers.classList.add("is-hidden");
+        elements.workersTableBody.innerHTML = "";
+        elements.mobileWorkers.innerHTML = "";
+        return;
+      }
+
+      elements.emptyWorkersState.classList.add("is-hidden");
+      elements.desktopWorkers.classList.remove("is-hidden");
+      elements.mobileWorkers.classList.remove("is-hidden");
+
+      elements.workersTableBody.innerHTML = filteredWorkers
+        .map((worker) => {
+          const badgeClass = worker.present_today ? "present" : "absent";
+          const badgeLabel = worker.present_today ? "Vor Ort" : "Nicht vor Ort";
+          return `
+            <tr>
+              <td class="worker-name">${escapeHtml(worker.name)}</td>
+              <td><span class="status-badge ${badgeClass}">${badgeLabel}</span></td>
+              <td>${escapeHtml(formatWorkerType(worker.type))}</td>
+              <td>${escapeHtml(formatCurrency(worker.rate))}</td>
+              <td>${escapeHtml(String(worker.contract_hours_week || 0))} h</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      elements.mobileWorkers.innerHTML = filteredWorkers
+        .map((worker) => {
+          const badgeClass = worker.present_today ? "present" : "absent";
+          const badgeLabel = worker.present_today ? "Vor Ort" : "Nicht vor Ort";
+          return `
+            <article class="worker-card">
+              <div class="worker-card-head">
+                <div>
+                  <div class="worker-name">${escapeHtml(worker.name)}</div>
+                  <div class="muted">${escapeHtml(formatWorkerType(worker.type))}</div>
+                </div>
+                <span class="status-badge ${badgeClass}">${badgeLabel}</span>
+              </div>
+              <div class="worker-card-body">
+                <div class="worker-card-row">
+                  <span class="worker-card-label">Stundenlohn</span>
+                  <span>${escapeHtml(formatCurrency(worker.rate))}</span>
+                </div>
+                <div class="worker-card-row">
+                  <span class="worker-card-label">Vertragsstunden / Woche</span>
+                  <span>${escapeHtml(String(worker.contract_hours_week || 0))} h</span>
+                </div>
+              </div>
+            </article>
+          `;
+        })
+        .join("");
+    }
+
+    function renderDashboard(data) {
+      renderSummary(data);
+      renderWorkers();
+    }
+
+    function handleFilterButtonClick(event) {
+      const button = event.currentTarget;
+      currentFilter = button.dataset.filter || "all";
+      elements.filterButtons.forEach((item) => {
+        item.classList.toggle("is-active", item === button);
+      });
+      renderWorkers();
+    }
+
+    async function loadDashboard() {
+      const token = getToken();
+
+      if (!token) {
+        setSessionState("Token fehlt", "warning");
+        showState("missingState");
+        return;
+      }
+
+      showState("loadingState");
+      setSessionState("Dashboard wird geladen", null);
+
+      try {
+        const response = await fetch(
+          `/api/dashboard/data?token=${encodeURIComponent(token)}`,
+          {
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        );
+
+        if (response.status === 404 || response.status === 403) {
+          setSessionState("Sitzung abgelaufen", "danger");
+          showState("accessState");
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP_${response.status}`);
+        }
+
+        dashboardData = normaliseData(await response.json());
+        renderDashboard(dashboardData);
+        setSessionState("Sitzung aktiv", "success");
+        showState("appContent");
+      } catch (error) {
+        console.error("Dashboard fetch failed", error);
+        setSessionState("Verbindung fehlgeschlagen", "danger");
+        showState("networkState");
+      }
+    }
+
+    elements.workerSearch.addEventListener("input", (event) => {
+      currentSearch = event.target.value || "";
+      renderWorkers();
+    });
+
+    elements.filterButtons.forEach((button) => {
+      button.addEventListener("click", handleFilterButtonClick);
+    });
+
+    window.addEventListener("DOMContentLoaded", loadDashboard);
+  </script>
 </body>
 </html>

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 os.environ.setdefault("BOT_TOKEN", "test-token")
@@ -249,14 +250,10 @@ def test_get_company_present_worker_ids_scopes_to_company():
     run_db_test(run_test)
 
 
-def test_dashboard_route_returns_404_for_missing_token():
-    async def run_test(session):
-        with pytest.raises(HTTPException) as exc_info:
-            await dashboard_router.serve_dashboard(token=None, db=session)
-
-        assert exc_info.value.status_code == 404
-
-    run_db_test(run_test)
+def test_dashboard_route_returns_shell_for_missing_token():
+    response = asyncio.run(dashboard_router.serve_dashboard(token=None))
+    assert isinstance(response, FileResponse)
+    assert response.path.endswith("api/static/dashboard.html")
 
 
 def test_dashboard_data_route_returns_404_for_invalid_token(monkeypatch):

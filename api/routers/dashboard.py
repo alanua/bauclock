@@ -30,13 +30,7 @@ def _dashboard_access_denied() -> HTTPException:
 @router.get("/dashboard")
 async def serve_dashboard(
     token: str | None = Query(default=None),
-    db: AsyncSession = Depends(get_db),
 ):
-    try:
-        await get_dashboard_worker(token, db, redis_client)
-    except DashboardAccessError as exc:
-        raise _dashboard_access_denied() from exc
-
     return FileResponse("api/static/dashboard.html", headers=DASHBOARD_RESPONSE_HEADERS)
 
 
