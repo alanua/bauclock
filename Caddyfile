@@ -4,9 +4,11 @@ sekbot.duckdns.org {
     @root path /
     redir @root /dashboard 302
 
-    reverse_proxy api:8000 {
-        header_up Host {host}
-        header_up X-Forwarded-Host {host}
-        header_up X-Forwarded-Proto {scheme}
+    @dashboardHead {
+        method HEAD
+        path /dashboard
     }
+    respond @dashboardHead 200
+
+    reverse_proxy api:8000
 }
