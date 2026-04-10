@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str
     OWNER_PHONE: str = "+49176807279824"
     REDIS_URL: str = "redis://redis:6379/0"
-    APP_URL: str = "https://bauclock.example.com"
+    APP_URL: str = "https://sekbot.duckdns.org"
     
     # We load this locally if not provided in env for local tests
     class Config:
