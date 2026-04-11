@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
@@ -28,12 +29,37 @@ class DashboardAccessError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class DashboardContext:
+    company_id: int
+    worker: Worker | None = None
+    display_name: str | None = None
+    role: str | None = None
+    is_platform_superadmin: bool = False
+
+    @classmethod
+    def from_worker(cls, worker: Worker) -> "DashboardContext":
+        return cls(company_id=worker.company_id, worker=worker)
+
+
 def get_dashboard_role(worker: Worker) -> str:
     return legacy_dashboard_role(worker)
 
 
 def _normalize_username(username: str | None) -> str:
     return (username or "").strip().lstrip("@").casefold()
+
+
+def _telegram_user_display_name(telegram_user: dict[str, Any]) -> str:
+    first_name = str(telegram_user.get("first_name") or "").strip()
+    last_name = str(telegram_user.get("last_name") or "").strip()
+    username = str(telegram_user.get("username") or "").strip()
+    full_name = " ".join(value for value in [first_name, last_name] if value).strip()
+    if full_name:
+        return full_name
+    if username:
+        return username
+    return "Platform Superadmin"
 
 
 async def get_dashboard_worker(
@@ -59,6 +85,14 @@ async def get_dashboard_worker(
         raise DashboardAccessError("dashboard_access_denied")
 
     return worker
+
+
+async def get_dashboard_context(
+    token: str | None,
+    db: AsyncSession,
+    redis_client: Any,
+) -> DashboardContext:
+    return DashboardContext.from_worker(await get_dashboard_worker(token, db, redis_client))
 
 
 async def _get_sek_company(db: AsyncSession) -> Company | None:
@@ -144,12 +178,57 @@ async def _ensure_sek_admin_worker(
     return worker
 
 
+async def _get_platform_superadmin_context(
+    db: AsyncSession,
+    *,
+    telegram_user: dict[str, Any],
+) -> DashboardContext | None:
+    company = await _get_sek_company(db)
+    if not company:
+        return None
+
+    return DashboardContext(
+        company_id=company.id,
+        display_name=_telegram_user_display_name(telegram_user),
+        role="PLATFORM_SUPERADMIN",
+        is_platform_superadmin=True,
+    )
+
+
+async def get_miniapp_dashboard_context(
+    init_data: str | None,
+    db: AsyncSession,
+    *,
+    bot_token: str | None = None,
+) -> DashboardContext:
+    worker = await _get_miniapp_dashboard_worker(
+        init_data,
+        db,
+        bot_token=bot_token,
+    )
+    if isinstance(worker, DashboardContext):
+        return worker
+    return DashboardContext.from_worker(worker)
+
+
 async def get_miniapp_dashboard_worker(
     init_data: str | None,
     db: AsyncSession,
     *,
     bot_token: str | None = None,
 ) -> Worker:
+    worker = await _get_miniapp_dashboard_worker(init_data, db, bot_token=bot_token)
+    if isinstance(worker, DashboardContext):
+        raise DashboardAccessError("platform_superadmin_requires_dashboard_context")
+    return worker
+
+
+async def _get_miniapp_dashboard_worker(
+    init_data: str | None,
+    db: AsyncSession,
+    *,
+    bot_token: str | None = None,
+) -> Worker | DashboardContext:
     normalized_init_data = (init_data or "").strip()
     if not normalized_init_data:
         raise DashboardAccessError("missing_miniapp_init_data")
@@ -159,8 +238,10 @@ async def get_miniapp_dashboard_worker(
 
         bot_token = settings.BOT_TOKEN
         admin_usernames = settings.ADMIN_USERNAMES
+        platform_superadmin_usernames = settings.PLATFORM_SUPERADMIN_USERNAMES
     else:
         admin_usernames = []
+        platform_superadmin_usernames = []
 
     try:
         payload = validate_telegram_init_data(
@@ -173,6 +254,12 @@ async def get_miniapp_dashboard_worker(
     telegram_user = payload["user"]
     telegram_user_id = telegram_user.get("id")
     telegram_id_hash = hash_string(str(telegram_user_id))
+    username = _normalize_username(telegram_user.get("username"))
+    if username and username in platform_superadmin_usernames:
+        context = await _get_platform_superadmin_context(db, telegram_user=telegram_user)
+        if context:
+            return context
+
     worker = (
         await db.execute(
             select(Worker).where(Worker.telegram_id_hash == telegram_id_hash)
@@ -181,7 +268,6 @@ async def get_miniapp_dashboard_worker(
     if can_access_dashboard(worker):
         return worker
 
-    username = _normalize_username(telegram_user.get("username"))
     if username and username in admin_usernames:
         worker = await _ensure_sek_admin_worker(
             db,

@@ -70,6 +70,7 @@ def install_import_stubs() -> None:
 install_import_stubs()
 
 import api.routers.dashboard as dashboard_router
+from api.config import settings
 from api.services.dashboard_access import (
     DashboardAccessError,
     get_company_present_worker_ids,
@@ -371,8 +372,56 @@ def test_dashboard_miniapp_bootstrap_denies_invalid_init_data():
     run_db_test(run_test)
 
 
+def test_dashboard_miniapp_bootstrap_allows_platform_superadmin_without_worker_mapping(
+    monkeypatch,
+):
+    async def run_test(session):
+        company = await seed_company(session, "platform-superadmin")
+        await seed_sek_public_profile(session, company)
+        tracked_worker = await seed_worker(
+            session,
+            company.id,
+            "platform-superadmin-worker",
+            can_view_dashboard=False,
+            telegram_id=456789,
+        )
+        await session.commit()
+
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data=signed_init_data(345678, username="AnOleksii"),
+        )
+
+        bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(
+            payload=payload,
+            db=session,
+        )
+        data = await dashboard_router.dashboard_data(
+            token=None,
+            telegram_init_data=payload.init_data,
+            db=session,
+        )
+
+        mapped_worker = (
+            await session.execute(
+                select(Worker).where(Worker.telegram_id_hash == hash_string("345678"))
+            )
+        ).scalar_one_or_none()
+
+        assert bootstrap["auth_mode"] == "miniapp"
+        assert bootstrap["user"]["role"] == "PLATFORM_SUPERADMIN"
+        assert data["user"]["role"] == "PLATFORM_SUPERADMIN"
+        assert data["workers"][0]["id"] == tracked_worker.id
+        assert mapped_worker is None
+
+    run_db_test(run_test)
+
+
 def test_dashboard_miniapp_bootstrap_links_configured_sek_admin(monkeypatch):
     async def run_test(session):
+        monkeypatch.setattr(settings, "ADMIN_USERNAMES", ["sekmanager"])
+        monkeypatch.setattr(settings, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+
         company = await seed_company(session, "sek-admin")
         await seed_sek_public_profile(session, company)
         owner = await seed_worker(
@@ -387,7 +436,7 @@ def test_dashboard_miniapp_bootstrap_links_configured_sek_admin(monkeypatch):
 
         monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
         payload = dashboard_router.MiniAppBootstrapRequest(
-            init_data=signed_init_data(345678, username="AnOleksii"),
+            init_data=signed_init_data(345678, username="SEKManager"),
         )
 
         bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(

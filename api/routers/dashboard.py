@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -11,11 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.redis_client import redis_client
 from api.services.dashboard_access import (
     DASHBOARD_RESPONSE_HEADERS,
+    DashboardContext,
     DashboardAccessError,
     get_company_present_worker_ids,
+    get_dashboard_context,
     get_dashboard_role,
-    get_dashboard_worker,
-    get_miniapp_dashboard_worker,
+    get_miniapp_dashboard_context,
 )
 from db.database import get_db
 from db.models import Request, Worker
@@ -66,12 +68,12 @@ async def _get_company_worker_names(
 async def _serialize_company_requests(
     db: AsyncSession,
     *,
-    manager_worker: Worker,
+    company_id: int,
     requests: list[Request],
 ) -> list[dict[str, str | int | None]]:
     worker_names = await _get_company_worker_names(
         db,
-        company_id=manager_worker.company_id,
+        company_id=company_id,
         worker_ids={
             request.target_worker_id
             for request in requests
@@ -91,15 +93,39 @@ async def _serialize_company_requests(
     ]
 
 
-async def _get_authenticated_dashboard_worker(
+def _dashboard_context_user(context: DashboardContext) -> dict[str, str]:
+    if context.worker:
+        return {
+            "name": decrypt_string(context.worker.full_name_enc),
+            "role": get_dashboard_role(context.worker),
+        }
+    return {
+        "name": context.display_name or "Platform Superadmin",
+        "role": context.role or "PLATFORM_SUPERADMIN",
+    }
+
+
+def _dashboard_manager(context: DashboardContext):
+    if context.worker:
+        return context.worker
+    return SimpleNamespace(
+        id=None,
+        company_id=context.company_id,
+        can_view_dashboard=True,
+        is_active=True,
+        created_by=None,
+    )
+
+
+async def _get_authenticated_dashboard_context(
     db: AsyncSession,
     *,
     token: str | None,
     telegram_init_data: str | None,
-) -> Worker:
+) -> DashboardContext:
     if (token or "").strip():
-        return await get_dashboard_worker(token, db, redis_client)
-    return await get_miniapp_dashboard_worker(telegram_init_data, db)
+        return await get_dashboard_context(token, db, redis_client)
+    return await get_miniapp_dashboard_context(telegram_init_data, db)
 
 
 @router.get("/dashboard")
@@ -115,16 +141,13 @@ async def dashboard_miniapp_bootstrap(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await get_miniapp_dashboard_worker(payload.init_data, db)
+        context = await get_miniapp_dashboard_context(payload.init_data, db)
     except DashboardAccessError as exc:
         raise _dashboard_access_denied() from exc
 
     return {
         "auth_mode": "miniapp",
-        "user": {
-            "name": decrypt_string(worker.full_name_enc),
-            "role": get_dashboard_role(worker),
-        },
+        "user": _dashboard_context_user(context),
     }
 
 
@@ -135,7 +158,7 @@ async def dashboard_data(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await _get_authenticated_dashboard_worker(
+        context = await _get_authenticated_dashboard_context(
             db,
             token=token,
             telegram_init_data=telegram_init_data,
@@ -146,18 +169,15 @@ async def dashboard_data(
     today = date.today()
 
     stmt = select(Worker).where(
-        Worker.company_id == worker.company_id,
+        Worker.company_id == context.company_id,
         Worker.is_active.is_(True),
         Worker.time_tracking_enabled.is_(True),
     )
     workers = (await db.execute(stmt)).scalars().all()
-    present_ids = await get_company_present_worker_ids(db, worker.company_id, today)
+    present_ids = await get_company_present_worker_ids(db, context.company_id, today)
 
     return {
-        "user": {
-            "name": decrypt_string(worker.full_name_enc),
-            "role": get_dashboard_role(worker),
-        },
+        "user": _dashboard_context_user(context),
         "today": {
             "present": len(present_ids),
             "total_workers": len(workers),
@@ -183,19 +203,19 @@ async def dashboard_requests(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await _get_authenticated_dashboard_worker(
+        context = await _get_authenticated_dashboard_context(
             db,
             token=token,
             telegram_init_data=telegram_init_data,
         )
-        requests = await list_company_requests(db, manager_worker=worker)
+        requests = await list_company_requests(db, manager_worker=_dashboard_manager(context))
     except (DashboardAccessError, RequestAccessError) as exc:
         raise _dashboard_access_denied() from exc
 
     return {
         "requests": await _serialize_company_requests(
             db,
-            manager_worker=worker,
+            company_id=context.company_id,
             requests=list(requests),
         )
     }
@@ -209,12 +229,16 @@ async def dashboard_request_resolve(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await _get_authenticated_dashboard_worker(
+        context = await _get_authenticated_dashboard_context(
             db,
             token=token,
             telegram_init_data=telegram_init_data,
         )
-        request = await resolve_request(db, request_id=request_id, manager_worker=worker)
+        request = await resolve_request(
+            db,
+            request_id=request_id,
+            manager_worker=_dashboard_manager(context),
+        )
     except (DashboardAccessError, RequestAccessError) as exc:
         raise _dashboard_access_denied() from exc
 
@@ -233,12 +257,16 @@ async def dashboard_request_reject(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await _get_authenticated_dashboard_worker(
+        context = await _get_authenticated_dashboard_context(
             db,
             token=token,
             telegram_init_data=telegram_init_data,
         )
-        request = await reject_request(db, request_id=request_id, manager_worker=worker)
+        request = await reject_request(
+            db,
+            request_id=request_id,
+            manager_worker=_dashboard_manager(context),
+        )
     except (DashboardAccessError, RequestAccessError) as exc:
         raise _dashboard_access_denied() from exc
 
