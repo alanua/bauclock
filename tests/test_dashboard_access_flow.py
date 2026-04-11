@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 os.environ.setdefault("BOT_TOKEN", "test-token")
@@ -76,7 +77,18 @@ from api.services.dashboard_access import (
 )
 from bot.handlers.dashboard import cmd_dashboard
 from db.dashboard_tokens import dashboard_token_key
-from db.models import Base, BillingType, Company, EventType, Site, TimeEvent, Worker, WorkerType
+from db.models import (
+    Base,
+    BillingType,
+    Company,
+    CompanyPublicProfile,
+    EventType,
+    Site,
+    TimeEvent,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
 from db.security import hash_string
 
 
@@ -88,14 +100,19 @@ class FakeRedis:
         return self.values.get(key)
 
 
-def signed_init_data(user_id: int, *, auth_date: int | None = None) -> str:
+def signed_init_data(
+    user_id: int,
+    *,
+    auth_date: int | None = None,
+    username: str | None = None,
+) -> str:
+    user = {"id": user_id, "first_name": "Mini", "last_name": "App"}
+    if username:
+        user["username"] = username
     params = {
         "auth_date": str(auth_date or int(time.time())),
         "query_id": "dashboard-miniapp-test",
-        "user": json.dumps(
-            {"id": user_id, "first_name": "Mini", "last_name": "App"},
-            separators=(",", ":"),
-        ),
+        "user": json.dumps(user, separators=(",", ":")),
     }
     data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(params.items()))
     secret_key = hmac.new(b"WebAppData", os.environ["BOT_TOKEN"].encode(), hashlib.sha256).digest()
@@ -130,6 +147,22 @@ async def seed_company(session, suffix: str) -> Company:
     session.add(company)
     await session.flush()
     return company
+
+
+async def seed_sek_public_profile(session, company: Company) -> CompanyPublicProfile:
+    profile = CompanyPublicProfile(
+        company_id=company.id,
+        slug="sek",
+        company_name="Generalbau S.E.K. GmbH",
+        subtitle="Generalbau",
+        about_text="SEK",
+        address="Brandenburg",
+        email=None,
+        is_active=True,
+    )
+    session.add(profile)
+    await session.flush()
+    return profile
 
 
 async def seed_site(session, company_id: int, suffix: str) -> Site:
@@ -328,6 +361,65 @@ def test_dashboard_miniapp_bootstrap_denies_invalid_init_data():
     async def run_test(session):
         payload = dashboard_router.MiniAppBootstrapRequest(
             init_data="auth_date=1&user={}&hash=invalid",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
+
+        assert exc_info.value.status_code == 404
+
+    run_db_test(run_test)
+
+
+def test_dashboard_miniapp_bootstrap_links_configured_sek_admin(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "sek-admin")
+        await seed_sek_public_profile(session, company)
+        owner = await seed_worker(
+            session,
+            company.id,
+            "sek-owner",
+            can_view_dashboard=True,
+            telegram_id=456789,
+        )
+        company.owner_telegram_id_hash = owner.telegram_id_hash
+        await session.commit()
+
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data=signed_init_data(345678, username="AnOleksii"),
+        )
+
+        bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(
+            payload=payload,
+            db=session,
+        )
+
+        created_worker = (
+            await session.execute(
+                select(Worker).where(Worker.telegram_id_hash == hash_string("345678"))
+            )
+        ).scalar_one()
+
+        assert bootstrap["auth_mode"] == "miniapp"
+        assert created_worker.company_id == company.id
+        assert created_worker.can_view_dashboard is True
+        assert created_worker.is_active is True
+        assert created_worker.time_tracking_enabled is False
+        assert created_worker.access_role == WorkerAccessRole.OBJEKTMANAGER.value
+        assert created_worker.created_by == owner.id
+
+    run_db_test(run_test)
+
+
+def test_dashboard_miniapp_bootstrap_denies_unconfigured_sek_admin():
+    async def run_test(session):
+        company = await seed_company(session, "sek-admin-denied")
+        await seed_sek_public_profile(session, company)
+        await session.commit()
+
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data=signed_init_data(456789, username="not-configured"),
         )
 
         with pytest.raises(HTTPException) as exc_info:

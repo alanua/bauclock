@@ -1,4 +1,8 @@
+import json
 import os
+from typing import Any
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -10,6 +14,27 @@ class Settings(BaseSettings):
     OWNER_PHONE: str = "+49176807279824"
     REDIS_URL: str = "redis://redis:6379/0"
     APP_URL: str = "https://sekbot.duckdns.org"
+    ADMIN_USERNAMES: list[str] = ["AnOleksii"]
+
+    @field_validator("ADMIN_USERNAMES", mode="before")
+    @classmethod
+    def parse_admin_usernames(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_value = value.strip()
+            if not raw_value:
+                return []
+            if raw_value.startswith("["):
+                try:
+                    value = json.loads(raw_value)
+                except json.JSONDecodeError:
+                    value = raw_value.split(",")
+            else:
+                value = raw_value.split(",")
+        if isinstance(value, tuple):
+            value = list(value)
+        return [str(item).strip().lstrip("@").casefold() for item in value if str(item).strip()]
     
     # We load this locally if not provided in env for local tests
     class Config:
