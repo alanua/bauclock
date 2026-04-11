@@ -81,6 +81,8 @@ def test_dashboard_shell_contains_public_landing_fallback():
     assert 'id="publicLandingState"' in html
     assert "/api/public/company-profile" in html
     assert "loadPublicLanding" in html
+    assert "bootstrapMiniApp" in html
+    assert "await loadPublicLanding();" in html
 
 
 def test_public_profile_migration_seeds_sek_profile():

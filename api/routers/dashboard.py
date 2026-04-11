@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,7 @@ from api.services.dashboard_access import (
     get_company_present_worker_ids,
     get_dashboard_role,
     get_dashboard_worker,
+    get_miniapp_dashboard_worker,
 )
 from db.database import get_db
 from db.models import Request, Worker
@@ -27,6 +29,10 @@ from db.security import decrypt_string
 
 
 router = APIRouter()
+
+
+class MiniAppBootstrapRequest(BaseModel):
+    init_data: str
 
 
 def _dashboard_access_denied() -> HTTPException:
@@ -85,6 +91,17 @@ async def _serialize_company_requests(
     ]
 
 
+async def _get_authenticated_dashboard_worker(
+    db: AsyncSession,
+    *,
+    token: str | None,
+    telegram_init_data: str | None,
+) -> Worker:
+    if (token or "").strip():
+        return await get_dashboard_worker(token, db, redis_client)
+    return await get_miniapp_dashboard_worker(telegram_init_data, db)
+
+
 @router.get("/dashboard")
 async def serve_dashboard(
     token: str | None = Query(default=None),
@@ -92,13 +109,37 @@ async def serve_dashboard(
     return FileResponse("api/static/dashboard.html", headers=DASHBOARD_RESPONSE_HEADERS)
 
 
-@router.get("/api/dashboard/data")
-async def dashboard_data(
-    token: str | None = Query(default=None),
+@router.post("/api/dashboard/miniapp/bootstrap")
+async def dashboard_miniapp_bootstrap(
+    payload: MiniAppBootstrapRequest,
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await get_dashboard_worker(token, db, redis_client)
+        worker = await get_miniapp_dashboard_worker(payload.init_data, db)
+    except DashboardAccessError as exc:
+        raise _dashboard_access_denied() from exc
+
+    return {
+        "auth_mode": "miniapp",
+        "user": {
+            "name": decrypt_string(worker.full_name_enc),
+            "role": get_dashboard_role(worker),
+        },
+    }
+
+
+@router.get("/api/dashboard/data")
+async def dashboard_data(
+    token: str | None = Query(default=None),
+    telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        worker = await _get_authenticated_dashboard_worker(
+            db,
+            token=token,
+            telegram_init_data=telegram_init_data,
+        )
     except DashboardAccessError as exc:
         raise _dashboard_access_denied() from exc
 
@@ -138,10 +179,15 @@ async def dashboard_data(
 @router.get("/api/dashboard/requests")
 async def dashboard_requests(
     token: str | None = Query(default=None),
+    telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await get_dashboard_worker(token, db, redis_client)
+        worker = await _get_authenticated_dashboard_worker(
+            db,
+            token=token,
+            telegram_init_data=telegram_init_data,
+        )
         requests = await list_company_requests(db, manager_worker=worker)
     except (DashboardAccessError, RequestAccessError) as exc:
         raise _dashboard_access_denied() from exc
@@ -159,10 +205,15 @@ async def dashboard_requests(
 async def dashboard_request_resolve(
     request_id: int,
     token: str | None = Query(default=None),
+    telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await get_dashboard_worker(token, db, redis_client)
+        worker = await _get_authenticated_dashboard_worker(
+            db,
+            token=token,
+            telegram_init_data=telegram_init_data,
+        )
         request = await resolve_request(db, request_id=request_id, manager_worker=worker)
     except (DashboardAccessError, RequestAccessError) as exc:
         raise _dashboard_access_denied() from exc
@@ -178,10 +229,15 @@ async def dashboard_request_resolve(
 async def dashboard_request_reject(
     request_id: int,
     token: str | None = Query(default=None),
+    telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        worker = await get_dashboard_worker(token, db, redis_client)
+        worker = await _get_authenticated_dashboard_worker(
+            db,
+            token=token,
+            telegram_init_data=telegram_init_data,
+        )
         request = await reject_request(db, request_id=request_id, manager_worker=worker)
     except (DashboardAccessError, RequestAccessError) as exc:
         raise _dashboard_access_denied() from exc

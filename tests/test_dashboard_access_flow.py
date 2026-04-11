@@ -1,6 +1,11 @@
 import asyncio
+import hashlib
+import hmac
+import json
 import os
 import sys
+import time
+from urllib.parse import urlencode
 from datetime import date, datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -72,6 +77,7 @@ from api.services.dashboard_access import (
 from bot.handlers.dashboard import cmd_dashboard
 from db.dashboard_tokens import dashboard_token_key
 from db.models import Base, BillingType, Company, EventType, Site, TimeEvent, Worker, WorkerType
+from db.security import hash_string
 
 
 class FakeRedis:
@@ -80,6 +86,21 @@ class FakeRedis:
 
     async def get(self, key: str) -> str | None:
         return self.values.get(key)
+
+
+def signed_init_data(user_id: int, *, auth_date: int | None = None) -> str:
+    params = {
+        "auth_date": str(auth_date or int(time.time())),
+        "query_id": "dashboard-miniapp-test",
+        "user": json.dumps(
+            {"id": user_id, "first_name": "Mini", "last_name": "App"},
+            separators=(",", ":"),
+        ),
+    }
+    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(params.items()))
+    secret_key = hmac.new(b"WebAppData", os.environ["BOT_TOKEN"].encode(), hashlib.sha256).digest()
+    params["hash"] = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    return urlencode(params)
 
 
 def run_db_test(test_coro):
@@ -131,11 +152,12 @@ async def seed_worker(
     is_active: bool = True,
     can_view_dashboard: bool = True,
     time_tracking_enabled: bool = True,
+    telegram_id: int | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
         telegram_id_enc=f"telegram_enc_{suffix}",
-        telegram_id_hash=f"telegram_hash_{suffix}",
+        telegram_id_hash=hash_string(str(telegram_id)) if telegram_id else f"telegram_hash_{suffix}",
         full_name_enc=f"name_enc_{suffix}",
         worker_type=WorkerType.FESTANGESTELLT,
         billing_type=BillingType.HOURLY,
@@ -234,6 +256,84 @@ def test_get_dashboard_worker_allows_time_tracking_disabled_admin():
 
         assert result.id == worker.id
         assert result.time_tracking_enabled is False
+
+    run_db_test(run_test)
+
+
+def test_dashboard_miniapp_bootstrap_allows_dashboard_user(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "miniapp")
+        worker = await seed_worker(
+            session,
+            company.id,
+            "miniapp",
+            can_view_dashboard=True,
+            telegram_id=123456,
+        )
+        await session.commit()
+
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data=signed_init_data(123456),
+        )
+
+        bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(
+            payload=payload,
+            db=session,
+        )
+        data = await dashboard_router.dashboard_data(
+            token=None,
+            telegram_init_data=payload.init_data,
+            db=session,
+        )
+
+        assert bootstrap == {
+            "auth_mode": "miniapp",
+            "user": {
+                "name": "name_enc_miniapp",
+                "role": "OWNER",
+            },
+        }
+        assert data["user"]["name"] == "name_enc_miniapp"
+        assert data["workers"][0]["id"] == worker.id
+
+    run_db_test(run_test)
+
+
+def test_dashboard_miniapp_bootstrap_denies_non_dashboard_user():
+    async def run_test(session):
+        company = await seed_company(session, "miniapp-denied")
+        await seed_worker(
+            session,
+            company.id,
+            "miniapp-denied",
+            can_view_dashboard=False,
+            telegram_id=234567,
+        )
+        await session.commit()
+
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data=signed_init_data(234567),
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
+
+        assert exc_info.value.status_code == 404
+
+    run_db_test(run_test)
+
+
+def test_dashboard_miniapp_bootstrap_denies_invalid_init_data():
+    async def run_test(session):
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data="auth_date=1&user={}&hash=invalid",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
+
+        assert exc_info.value.status_code == 404
 
     run_db_test(run_test)
 

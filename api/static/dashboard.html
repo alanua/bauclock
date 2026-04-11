@@ -742,7 +742,7 @@
               </p>
             </div>
           </div>
-          <div id="sessionPill" class="session-pill">Token wird geprueft</div>
+          <div id="sessionPill" class="session-pill">Zugriff wird geprueft</div>
         </div>
       </section>
 
@@ -761,10 +761,10 @@
         <div class="state-card warning">
           <div class="state-icon">!</div>
           <p class="state-eyebrow">Zugriff erforderlich</p>
-          <h2 class="state-title">Es fehlt ein gueltiger Dashboard-Link.</h2>
+          <h2 class="state-title">Dashboard-Zugriff erforderlich.</h2>
           <p class="state-copy">
-            Oeffnen Sie das Dashboard ueber den Link aus dem Telegram-Bot. Der Link enthaelt
-            ein zeitlich begrenztes Zugriffstoken.
+            Oeffnen Sie BauClock ueber die Telegram Mini App oder ueber einen gueltigen
+            Dashboard-Link.
           </p>
           <div class="state-actions">
             <button class="button secondary" type="button" onclick="window.location.reload()">
@@ -780,8 +780,8 @@
           <p class="state-eyebrow">Sitzung abgelaufen</p>
           <h2 class="state-title">Der Dashboard-Zugriff ist nicht mehr gueltig.</h2>
           <p class="state-copy">
-            Der Link ist ungueltig oder abgelaufen. Fordern Sie im Telegram-Bot einen
-            neuen Dashboard-Link an.
+            Der Zugriff ist ungueltig oder abgelaufen. Oeffnen Sie BauClock neu oder
+            verwenden Sie einen gueltigen Dashboard-Link.
           </p>
           <div class="state-actions">
             <button class="button secondary" type="button" onclick="window.location.reload()">
@@ -841,7 +841,7 @@
 
           <div class="state-actions" style="justify-content: flex-start;">
             <button class="button secondary" type="button" onclick="loadDashboard()">
-              Dashboard-Link pruefen
+              Zugriff pruefen
             </button>
           </div>
         </div>
@@ -1001,6 +1001,7 @@
     let requestData = [];
     let currentSearch = "";
     let activeRequestAction = null;
+    let dashboardAuth = null;
 
     function showState(activeId) {
       [
@@ -1026,6 +1027,25 @@
     function getToken() {
       const value = new URLSearchParams(window.location.search).get("token");
       return value ? value.trim() : "";
+    }
+
+    function getTelegramInitData() {
+      const webApp = window.Telegram && window.Telegram.WebApp;
+      const initData = webApp && typeof webApp.initData === "string" ? webApp.initData : "";
+      return initData.trim();
+    }
+
+    function notifyTelegramReady() {
+      const webApp = window.Telegram && window.Telegram.WebApp;
+      if (!webApp) {
+        return;
+      }
+      if (typeof webApp.ready === "function") {
+        webApp.ready();
+      }
+      if (typeof webApp.expand === "function") {
+        webApp.expand();
+      }
     }
 
     function escapeHtml(value) {
@@ -1109,13 +1129,29 @@
       return labels[value] || "Offen";
     }
 
-    function fetchJson(path, token, options) {
-      return fetch(`${path}?token=${encodeURIComponent(token)}`, {
-        headers: {
-          Accept: "application/json",
-        },
-        cache: "no-store",
+    function dashboardUrl(path, auth) {
+      if (auth && auth.mode === "token") {
+        return `${path}?token=${encodeURIComponent(auth.token)}`;
+      }
+      return path;
+    }
+
+    function dashboardHeaders(auth, options) {
+      const headers = {
+        Accept: "application/json",
+        ...(options && options.headers ? options.headers : {}),
+      };
+      if (auth && auth.mode === "miniapp") {
+        headers["X-Telegram-Init-Data"] = auth.initData;
+      }
+      return headers;
+    }
+
+    function fetchJson(path, auth, options = {}) {
+      return fetch(dashboardUrl(path, auth), {
         ...options,
+        headers: dashboardHeaders(auth, options),
+        cache: "no-store",
       });
     }
 
@@ -1416,8 +1452,8 @@
       renderRequests();
     }
 
-    async function loadRequests(token) {
-      const response = await fetchJson("/api/dashboard/requests", token);
+    async function loadRequests(auth) {
+      const response = await fetchJson("/api/dashboard/requests", auth);
 
       if (response.status === 404) {
         throw new Error("ACCESS_404");
@@ -1449,11 +1485,73 @@
       }
     }
 
-    async function runRequestAction(requestId, action) {
-      const token = getToken();
+    async function bootstrapMiniApp() {
+      const initData = getTelegramInitData();
+      if (!initData) {
+        return null;
+      }
 
-      if (!token) {
-        await loadPublicLanding();
+      setSessionState("Telegram Mini App wird geprueft", null);
+      const response = await fetch("/api/dashboard/miniapp/bootstrap", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+        body: JSON.stringify({ init_data: initData }),
+      });
+
+      if (response.status === 404) {
+        return null;
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP_${response.status}`);
+      }
+
+      await response.json();
+      return {
+        mode: "miniapp",
+        initData,
+      };
+    }
+
+    async function resolveDashboardAuth() {
+      const token = getToken();
+      if (token) {
+        return {
+          mode: "token",
+          token,
+        };
+      }
+      return bootstrapMiniApp();
+    }
+
+    async function loadProtectedDashboard(auth) {
+      const response = await fetchJson("/api/dashboard/data", auth);
+
+      if (response.status === 404) {
+        throw new Error("ACCESS_404");
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP_${response.status}`);
+      }
+
+      dashboardData = normaliseData(await response.json());
+      await loadRequests(auth);
+      dashboardAuth = auth;
+      renderDashboard(dashboardData);
+      setSessionState("Sitzung aktiv", "success");
+      showState("appContent");
+    }
+
+    async function runRequestAction(requestId, action) {
+      const auth = dashboardAuth;
+
+      if (!auth) {
+        await loadDashboard();
         return;
       }
 
@@ -1463,7 +1561,7 @@
       try {
         const response = await fetchJson(
           `/api/dashboard/requests/${requestId}/${action}`,
-          token,
+          auth,
           { method: "POST" }
         );
 
@@ -1476,7 +1574,7 @@
           throw new Error(`HTTP_${response.status}`);
         }
 
-        await loadRequests(token);
+        await loadRequests(auth);
         renderRequests();
         setSessionState("Anfrage aktualisiert", "success");
       } catch (error) {
@@ -1495,9 +1593,10 @@
     }
 
     async function loadDashboard() {
-      const token = getToken();
+      dashboardAuth = null;
+      const auth = await resolveDashboardAuth();
 
-      if (!token) {
+      if (!auth) {
         await loadPublicLanding();
         return;
       }
@@ -1506,24 +1605,22 @@
       setSessionState("Dashboard wird geladen", null);
 
       try {
-        const response = await fetchJson("/api/dashboard/data", token);
-
-        if (response.status === 404) {
-          await loadPublicLanding();
-          return;
-        }
-
-        if (!response.ok) {
-          throw new Error(`HTTP_${response.status}`);
-        }
-
-        dashboardData = normaliseData(await response.json());
-        await loadRequests(token);
-        renderDashboard(dashboardData);
-        setSessionState("Sitzung aktiv", "success");
-        showState("appContent");
+        await loadProtectedDashboard(auth);
       } catch (error) {
         if (error.message === "ACCESS_404") {
+          if (auth.mode === "token") {
+            const miniAppAuth = await bootstrapMiniApp();
+            if (miniAppAuth) {
+              try {
+                await loadProtectedDashboard(miniAppAuth);
+                return;
+              } catch (miniAppError) {
+                if (miniAppError.message !== "ACCESS_404") {
+                  throw miniAppError;
+                }
+              }
+            }
+          }
           await loadPublicLanding();
           return;
         }
@@ -1556,7 +1653,10 @@
     bindRequestActions(elements.desktopRequests);
     bindRequestActions(elements.mobileRequests);
 
-    window.addEventListener("DOMContentLoaded", loadDashboard);
+    window.addEventListener("DOMContentLoaded", () => {
+      notifyTelegramReady();
+      loadDashboard();
+    });
   </script>
 </body>
 </html>

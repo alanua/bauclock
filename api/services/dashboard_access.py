@@ -7,8 +7,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from access.legacy_policy import can_access_dashboard, legacy_dashboard_role
+from api.services.telegram_init_data import TelegramInitDataError, validate_telegram_init_data
 from db.dashboard_tokens import dashboard_token_key
 from db.models import TimeEvent, Worker
+from db.security import hash_string
 
 
 DASHBOARD_RESPONSE_HEADERS = {"Cache-Control": "no-store"}
@@ -41,6 +43,41 @@ async def get_dashboard_worker(
         raise DashboardAccessError("invalid_dashboard_token") from exc
 
     worker = await db.get(Worker, worker_id_int)
+    if not can_access_dashboard(worker):
+        raise DashboardAccessError("dashboard_access_denied")
+
+    return worker
+
+
+async def get_miniapp_dashboard_worker(
+    init_data: str | None,
+    db: AsyncSession,
+    *,
+    bot_token: str | None = None,
+) -> Worker:
+    normalized_init_data = (init_data or "").strip()
+    if not normalized_init_data:
+        raise DashboardAccessError("missing_miniapp_init_data")
+
+    if bot_token is None:
+        from api.config import settings
+
+        bot_token = settings.BOT_TOKEN
+
+    try:
+        payload = validate_telegram_init_data(
+            normalized_init_data,
+            bot_token=bot_token,
+        )
+    except TelegramInitDataError as exc:
+        raise DashboardAccessError("invalid_miniapp_init_data") from exc
+
+    telegram_user_id = payload["user"].get("id")
+    worker = (
+        await db.execute(
+            select(Worker).where(Worker.telegram_id_hash == hash_string(str(telegram_user_id)))
+        )
+    ).scalar_one_or_none()
     if not can_access_dashboard(worker):
         raise DashboardAccessError("dashboard_access_denied")
 
