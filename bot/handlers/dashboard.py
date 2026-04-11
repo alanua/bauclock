@@ -6,6 +6,7 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from access.legacy_policy import can_access_dashboard
 from bot.config import settings
 from bot.redis_cache import redis_client
 from db.dashboard_tokens import DASHBOARD_TOKEN_TTL_SECONDS, dashboard_token_key
@@ -17,7 +18,7 @@ router = Router()
 
 @router.message(Command("dashboard"))
 async def cmd_dashboard(message: Message, current_worker: Worker, locale: str):
-    if not current_worker or not current_worker.is_active or not current_worker.can_view_dashboard:
+    if not can_access_dashboard(current_worker):
         return
 
     token = secrets.token_urlsafe(32)

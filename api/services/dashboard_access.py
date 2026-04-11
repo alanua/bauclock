@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from access.legacy_policy import can_access_dashboard, legacy_dashboard_role
 from db.dashboard_tokens import dashboard_token_key
 from db.models import TimeEvent, Worker
 
@@ -18,7 +19,7 @@ class DashboardAccessError(Exception):
 
 
 def get_dashboard_role(worker: Worker) -> str:
-    return "OWNER" if worker.created_by is None else "SUPERVISOR"
+    return legacy_dashboard_role(worker)
 
 
 async def get_dashboard_worker(
@@ -40,7 +41,7 @@ async def get_dashboard_worker(
         raise DashboardAccessError("invalid_dashboard_token") from exc
 
     worker = await db.get(Worker, worker_id_int)
-    if not worker or not worker.is_active or not worker.can_view_dashboard:
+    if not can_access_dashboard(worker):
         raise DashboardAccessError("dashboard_access_denied")
 
     return worker
@@ -57,6 +58,7 @@ async def get_company_present_worker_ids(
         .where(
             Worker.company_id == company_id,
             Worker.is_active.is_(True),
+            Worker.time_tracking_enabled.is_(True),
             func.date(TimeEvent.timestamp) == day,
         )
         .distinct()

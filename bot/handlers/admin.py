@@ -6,6 +6,12 @@ from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from access.legacy_policy import (
+    can_manage_payments,
+    can_manage_rates,
+    can_manage_workers,
+    can_view_admin_features,
+)
 from db.models import Worker, Payment, WorkerType
 from bot.keyboards.chief_kb import get_cancel_kb
 
@@ -26,7 +32,7 @@ def get_admin_action_kb(worker_id: int, locale: str) -> InlineKeyboardMarkup:
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, state: FSMContext, session: AsyncSession, current_worker: Worker, locale: str):
-    if not current_worker or not current_worker.can_view_dashboard:
+    if not can_view_admin_features(current_worker):
         await message.answer("Zugriff verweigert." if locale == "de" else "Доступ заборонено.")
         return
         
@@ -50,7 +56,7 @@ async def cmd_admin(message: Message, state: FSMContext, session: AsyncSession, 
 
 @router.callback_query(F.data.startswith("adm_sel_"))
 async def admin_worker_selected(callback: CallbackQuery, session: AsyncSession, current_worker: Worker, locale: str):
-    if not current_worker.can_view_dashboard:
+    if not can_view_admin_features(current_worker):
         return
         
     target_id = int(callback.data.split("_")[2])
@@ -68,7 +74,7 @@ async def admin_worker_selected(callback: CallbackQuery, session: AsyncSession, 
 
 @router.callback_query(F.data.startswith("adm_deact_"))
 async def admin_deactivate(callback: CallbackQuery, session: AsyncSession, current_worker: Worker, locale: str):
-    if not current_worker.can_view_dashboard: return
+    if not can_manage_workers(current_worker): return
     target_id = int(callback.data.split("_")[2])
     target = await session.get(Worker, target_id)
     
@@ -80,7 +86,7 @@ async def admin_deactivate(callback: CallbackQuery, session: AsyncSession, curre
 
 @router.callback_query(F.data.startswith("adm_edit_"))
 async def admin_edit_rate(callback: CallbackQuery, state: FSMContext, session: AsyncSession, current_worker: Worker, locale: str):
-    if not current_worker.can_view_dashboard: return
+    if not can_manage_rates(current_worker): return
     target_id = int(callback.data.split("_")[2])
     
     await state.update_data(edit_worker_id=target_id)
@@ -109,7 +115,7 @@ async def process_new_rate(message: Message, state: FSMContext, session: AsyncSe
 
 @router.callback_query(F.data.startswith("adm_hist_"))
 async def admin_history(callback: CallbackQuery, session: AsyncSession, current_worker: Worker, locale: str):
-    if not current_worker.can_view_dashboard: return
+    if not can_manage_payments(current_worker): return
     target_id = int(callback.data.split("_")[2])
     
     stmt = select(Payment).where(Payment.worker_id == target_id).order_by(Payment.period_end.desc()).limit(5)

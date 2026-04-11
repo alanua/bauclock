@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Enum, Text
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 from db.security import encrypt_string, decrypt_string, hash_string
@@ -11,6 +11,13 @@ class WorkerType(str, enum.Enum):
     MINIJOB = "MINIJOB"
     GEWERBE = "GEWERBE"
     SUBUNTERNEHMER = "SUBUNTERNEHMER"
+
+class WorkerAccessRole(str, enum.Enum):
+    COMPANY_OWNER = "company_owner"
+    OBJEKTMANAGER = "objektmanager"
+    ACCOUNTANT = "accountant"
+    WORKER = "worker"
+    SUBCONTRACTOR = "subcontractor"
 
 class BillingType(str, enum.Enum):
     HOURLY = "HOURLY"
@@ -30,6 +37,17 @@ class PaymentStatus(str, enum.Enum):
 class PaymentType(str, enum.Enum):
     CONTRACT = "CONTRACT"
     OVERTIME = "OVERTIME"
+
+class RequestStatus(str, enum.Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    REJECTED = "rejected"
+
+class CalendarEventType(str, enum.Enum):
+    VACATION = "vacation"
+    SICK_LEAVE = "sick_leave"
+    PUBLIC_HOLIDAY = "public_holiday"
+    NON_WORKING_DAY = "non_working_day"
 
 class LanguageSupport(str, enum.Enum):
     DE = "de"
@@ -58,6 +76,35 @@ class Company(Base):
 
     sites = relationship("Site", back_populates="company")
     workers = relationship("Worker", back_populates="company")
+    requests = relationship("Request", back_populates="company")
+    calendar_events = relationship("CalendarEvent", back_populates="company")
+    public_profile = relationship(
+        "CompanyPublicProfile",
+        back_populates="company",
+        uselist=False,
+    )
+
+
+class CompanyPublicProfile(Base):
+    __tablename__ = "company_public_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True, unique=True)
+    slug = Column(String(64), nullable=False, unique=True, index=True)
+    company_name = Column(String, nullable=False)
+    subtitle = Column(String, nullable=False)
+    about_text = Column(Text, nullable=False)
+    address = Column(String, nullable=False)
+    email = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    company = relationship("Company", back_populates="public_profile")
 
 class Site(Base):
     __tablename__ = "sites"
@@ -77,6 +124,7 @@ class Site(Base):
 
     company = relationship("Company", back_populates="sites")
     workers = relationship("Worker", back_populates="site")
+    calendar_events = relationship("CalendarEvent", back_populates="site")
 
 class Worker(Base):
     __tablename__ = "workers"
@@ -98,7 +146,14 @@ class Worker(Base):
     
     # App logic
     language = Column(Enum(LanguageSupport), default=LanguageSupport.DE)
+    access_role = Column(
+        String(32),
+        nullable=False,
+        default=WorkerAccessRole.WORKER.value,
+        server_default=WorkerAccessRole.WORKER.value,
+    )
     can_view_dashboard = Column(Boolean, default=False)
+    time_tracking_enabled = Column(Boolean, nullable=False, default=True, server_default="1")
     is_active = Column(Boolean, default=True)
     gdpr_consent_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -108,6 +163,94 @@ class Worker(Base):
     site = relationship("Site", back_populates="workers")
     time_events = relationship("TimeEvent", back_populates="worker")
     payments = relationship("Payment", back_populates="worker", foreign_keys="Payment.worker_id")
+    created_requests = relationship(
+        "Request",
+        back_populates="creator",
+        foreign_keys="Request.created_by_worker_id",
+    )
+    targeted_requests = relationship(
+        "Request",
+        back_populates="target_worker",
+        foreign_keys="Request.target_worker_id",
+    )
+    calendar_events = relationship(
+        "CalendarEvent",
+        back_populates="worker",
+        foreign_keys="CalendarEvent.worker_id",
+    )
+    created_calendar_events = relationship(
+        "CalendarEvent",
+        back_populates="creator",
+        foreign_keys="CalendarEvent.created_by_worker_id",
+    )
+
+class Request(Base):
+    __tablename__ = "requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    created_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    target_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    related_date = Column(Date, nullable=True)
+    text = Column(String, nullable=False)
+    status = Column(
+        String(20),
+        nullable=False,
+        default=RequestStatus.OPEN.value,
+        server_default=RequestStatus.OPEN.value,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+    company = relationship("Company", back_populates="requests")
+    creator = relationship(
+        "Worker",
+        foreign_keys=[created_by_worker_id],
+        back_populates="created_requests",
+    )
+    target_worker = relationship(
+        "Worker",
+        foreign_keys=[target_worker_id],
+        back_populates="targeted_requests",
+    )
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
+    event_type = Column(String(32), nullable=False)
+    date_from = Column(Date, nullable=False)
+    date_to = Column(Date, nullable=False)
+    comment = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+    created_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    company = relationship("Company", back_populates="calendar_events")
+    worker = relationship(
+        "Worker",
+        foreign_keys=[worker_id],
+        back_populates="calendar_events",
+    )
+    site = relationship("Site", back_populates="calendar_events")
+    creator = relationship(
+        "Worker",
+        foreign_keys=[created_by_worker_id],
+        back_populates="created_calendar_events",
+    )
 
 class TimeEvent(Base):
     __tablename__ = "time_events"

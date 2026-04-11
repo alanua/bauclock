@@ -8,7 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.utils.owner_worker import ensure_company_owner_worker
-from db.models import Base, Company, Worker
+from db.models import Base, BillingType, Company, Worker, WorkerAccessRole, WorkerType
+from db.security import hash_string
 
 
 def test_ensure_company_owner_worker_is_idempotent():
@@ -46,6 +47,58 @@ def test_ensure_company_owner_worker_is_idempotent():
 
                 assert first_worker.id == second_worker.id
                 assert worker_count == 1
+                assert first_worker.access_role == WorkerAccessRole.COMPANY_OWNER.value
+
+            await engine.dispose()
+
+    asyncio.run(run_test())
+
+
+def test_ensure_company_owner_worker_preserves_time_tracking_flag():
+    async def run_test():
+        os.environ["ENCRYPTION_KEY"] = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        os.environ["HASH_PEPPER"] = "test_pepper"
+
+        with TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "owner_worker.db"
+            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+            session_maker = async_sessionmaker(engine, expire_on_commit=False)
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            async with session_maker() as session:
+                company = Company(
+                    name="SEK",
+                    owner_telegram_id_enc="owner_enc",
+                    owner_telegram_id_hash="owner_hash",
+                )
+                session.add(company)
+                await session.flush()
+
+                telegram_user = SimpleNamespace(id=123456, full_name="Owner User")
+                worker = Worker(
+                    company_id=company.id,
+                    telegram_id_enc="telegram_enc",
+                    telegram_id_hash=hash_string(str(telegram_user.id)),
+                    full_name_enc="owner_name_enc",
+                    worker_type=WorkerType.FESTANGESTELLT,
+                    billing_type=BillingType.HOURLY,
+                    can_view_dashboard=False,
+                    time_tracking_enabled=False,
+                    is_active=False,
+                    created_by=42,
+                )
+                session.add(worker)
+                await session.commit()
+
+                result = await ensure_company_owner_worker(telegram_user, session, company)
+
+                assert result.id == worker.id
+                assert result.can_view_dashboard is True
+                assert result.is_active is True
+                assert result.created_by is None
+                assert result.time_tracking_enabled is False
 
             await engine.dispose()
 

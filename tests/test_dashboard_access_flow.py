@@ -130,6 +130,7 @@ async def seed_worker(
     *,
     is_active: bool = True,
     can_view_dashboard: bool = True,
+    time_tracking_enabled: bool = True,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
@@ -139,6 +140,7 @@ async def seed_worker(
         worker_type=WorkerType.FESTANGESTELLT,
         billing_type=BillingType.HOURLY,
         can_view_dashboard=can_view_dashboard,
+        time_tracking_enabled=time_tracking_enabled,
         is_active=is_active,
     )
     session.add(worker)
@@ -213,6 +215,29 @@ def test_get_dashboard_worker_dashboard_disabled():
     run_db_test(run_test)
 
 
+def test_get_dashboard_worker_allows_time_tracking_disabled_admin():
+    async def run_test(session):
+        company = await seed_company(session, "tracking-disabled-admin")
+        worker = await seed_worker(
+            session,
+            company.id,
+            "tracking-disabled-admin",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+        )
+        await session.commit()
+
+        token = "tracking-disabled-admin-token"
+        redis_client = FakeRedis({dashboard_token_key(token): str(worker.id)})
+
+        result = await get_dashboard_worker(token, session, redis_client)
+
+        assert result.id == worker.id
+        assert result.time_tracking_enabled is False
+
+    run_db_test(run_test)
+
+
 def test_get_company_present_worker_ids_scopes_to_company():
     async def run_test(session):
         target_day = date(2026, 4, 8)
@@ -250,6 +275,46 @@ def test_get_company_present_worker_ids_scopes_to_company():
     run_db_test(run_test)
 
 
+def test_get_company_present_worker_ids_excludes_tracking_disabled_workers():
+    async def run_test(session):
+        target_day = date(2026, 4, 8)
+        timestamp = datetime(2026, 4, 8, 8, 30, tzinfo=timezone.utc)
+
+        company = await seed_company(session, "tracking-participants")
+        site = await seed_site(session, company.id, "tracking-participants")
+        enabled_worker = await seed_worker(session, company.id, "tracking-enabled")
+        disabled_worker = await seed_worker(
+            session,
+            company.id,
+            "tracking-disabled",
+            time_tracking_enabled=False,
+        )
+
+        session.add_all(
+            [
+                TimeEvent(
+                    worker_id=enabled_worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+                TimeEvent(
+                    worker_id=disabled_worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+            ]
+        )
+        await session.commit()
+
+        result = await get_company_present_worker_ids(session, company.id, target_day)
+
+        assert result == {enabled_worker.id}
+
+    run_db_test(run_test)
+
+
 def test_dashboard_route_returns_shell_for_missing_token():
     response = asyncio.run(dashboard_router.serve_dashboard(token=None))
     assert isinstance(response, FileResponse)
@@ -264,6 +329,41 @@ def test_dashboard_data_route_returns_404_for_invalid_token(monkeypatch):
             await dashboard_router.dashboard_data(token="invalid-token", db=session)
 
         assert exc_info.value.status_code == 404
+
+    run_db_test(run_test)
+
+
+def test_dashboard_data_excludes_tracking_disabled_workers(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "dashboard-filter")
+        admin = await seed_worker(
+            session,
+            company.id,
+            "dashboard-filter-admin",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+        )
+        tracked_worker = await seed_worker(
+            session,
+            company.id,
+            "dashboard-filter-worker",
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+        )
+        await session.commit()
+
+        token = "dashboard-filter-token"
+        monkeypatch.setattr(
+            dashboard_router,
+            "redis_client",
+            FakeRedis({dashboard_token_key(token): str(admin.id)}),
+        )
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+
+        result = await dashboard_router.dashboard_data(token=token, db=session)
+
+        assert result["today"]["total_workers"] == 1
+        assert [worker["id"] for worker in result["workers"]] == [tracked_worker.id]
 
     run_db_test(run_test)
 

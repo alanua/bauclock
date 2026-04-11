@@ -3,10 +3,33 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from db.database import get_db
-from db.models import Site, Company
+from db.models import CompanyPublicProfile, Site, Company
 from api.config import settings
 
 router = APIRouter()
+
+
+def _serialize_public_profile(profile: CompanyPublicProfile) -> dict[str, str | None]:
+    return {
+        "company_name": profile.company_name,
+        "subtitle": profile.subtitle,
+        "about_text": profile.about_text,
+        "address": profile.address,
+        "email": profile.email,
+    }
+
+
+@router.get("/api/public/company-profile")
+async def get_company_public_profile(db: AsyncSession = Depends(get_db)):
+    stmt = select(CompanyPublicProfile).where(
+        CompanyPublicProfile.slug == "sek",
+        CompanyPublicProfile.is_active.is_(True),
+    )
+    profile = (await db.execute(stmt)).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Company public profile not found")
+
+    return _serialize_public_profile(profile)
 
 @router.get("/s/{qr_token}", response_class=HTMLResponse)
 async def get_site_public_page(qr_token: str, request: Request, db: AsyncSession = Depends(get_db)):

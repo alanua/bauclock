@@ -73,7 +73,8 @@
 
     .header-card,
     .summary-card,
-    .workers-card {
+    .workers-card,
+    .requests-card {
       padding: 18px;
     }
 
@@ -272,7 +273,8 @@
       opacity: 0.92;
     }
 
-    .workers-card {
+    .workers-card,
+    .requests-card {
       display: grid;
       gap: 16px;
     }
@@ -406,6 +408,24 @@
       color: var(--success);
     }
 
+    .status-badge.open {
+      background: var(--warning-soft);
+      border-color: rgba(199, 119, 26, 0.18);
+      color: var(--warning);
+    }
+
+    .status-badge.resolved {
+      background: var(--success-soft);
+      border-color: rgba(31, 138, 88, 0.14);
+      color: var(--success);
+    }
+
+    .status-badge.rejected {
+      background: var(--danger-soft);
+      border-color: rgba(196, 67, 59, 0.18);
+      color: var(--danger);
+    }
+
     .worker-name {
       font-weight: 700;
     }
@@ -452,9 +472,37 @@
       font-size: 14px;
     }
 
+    .worker-row.wrap {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
     .worker-row-label {
       font-weight: 700;
       color: var(--text-muted);
+    }
+
+    .request-text {
+      line-height: 1.55;
+      color: var(--text);
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .request-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .request-actions.compact {
+      justify-content: flex-start;
+    }
+
+    .inline-muted {
+      color: var(--text-muted);
+      font-size: 13px;
     }
 
     .empty-state {
@@ -534,6 +582,49 @@
       margin-top: 4px;
     }
 
+    .public-landing {
+      display: grid;
+      gap: 16px;
+    }
+
+    .public-panel {
+      padding: 22px;
+      display: grid;
+      gap: 18px;
+      background: var(--surface);
+      border: 1px solid rgba(21, 32, 51, 0.06);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .public-profile-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .public-info-block {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface-muted);
+      padding: 14px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .public-info-label {
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .public-info-value {
+      color: var(--text);
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
     .button {
       min-height: 44px;
       padding: 0 18px;
@@ -549,6 +640,22 @@
       background: var(--surface-muted);
       color: var(--text);
       border-color: var(--border);
+    }
+
+    .button.danger {
+      background: var(--danger);
+    }
+
+    .button.small {
+      min-height: 36px;
+      padding: 0 14px;
+      border-radius: 12px;
+      font-size: 13px;
+    }
+
+    .button:disabled {
+      cursor: default;
+      opacity: 0.6;
     }
 
     .loading-layout {
@@ -591,7 +698,8 @@
 
       .header-card,
       .summary-card,
-      .workers-card {
+      .workers-card,
+      .requests-card {
         padding: 22px;
       }
 
@@ -703,6 +811,42 @@
         </div>
       </section>
 
+      <section id="publicLandingState" class="public-landing is-hidden">
+        <div class="public-panel">
+          <div class="brand">
+            <div class="brand-mark">SEK</div>
+            <div class="brand-copy">
+              <p class="eyebrow">Generalbau</p>
+              <h2 id="publicCompanyName" class="brand-title">Generalbau S.E.K. GmbH</h2>
+              <p id="publicSubtitle" class="brand-subtitle">
+                Generalbau · Trockenbau · Putz & Maler · Dämmung
+              </p>
+            </div>
+          </div>
+
+          <p id="publicAbout" class="summary-copy">
+            Wir bauen Zukunft - Stein auf Stein, Wand für Wand.
+          </p>
+
+          <div class="public-profile-grid">
+            <div class="public-info-block">
+              <span class="public-info-label">Adresse</span>
+              <span id="publicAddress" class="public-info-value">-</span>
+            </div>
+            <div class="public-info-block">
+              <span class="public-info-label">E-Mail</span>
+              <span id="publicEmail" class="public-info-value">-</span>
+            </div>
+          </div>
+
+          <div class="state-actions" style="justify-content: flex-start;">
+            <button class="button secondary" type="button" onclick="loadDashboard()">
+              Dashboard-Link pruefen
+            </button>
+          </div>
+        </div>
+      </section>
+
       <div id="appContent" class="is-hidden">
         <section class="card summary-card">
           <div class="summary-head">
@@ -778,6 +922,40 @@
 
           <div id="mobileWorkers" class="mobile-list is-hidden"></div>
         </section>
+
+        <section class="card requests-card">
+          <div class="workers-head">
+            <h2 style="font-size: 22px; font-weight: 800;">Anfragen</h2>
+            <p id="requestCountCopy" class="workers-copy">0 Eintraege sichtbar.</p>
+          </div>
+
+          <div id="emptyRequestsState" class="empty-state is-hidden">
+            <strong style="display: block; margin-bottom: 8px; color: var(--text);">
+              Keine Anfragen vorhanden.
+            </strong>
+            <span id="emptyRequestsCopy">
+              Neue Problem-Meldungen erscheinen hier automatisch.
+            </span>
+          </div>
+
+          <div id="desktopRequests" class="desktop-list is-hidden">
+            <table class="workers-table">
+              <thead>
+                <tr>
+                  <th>Erstellt</th>
+                  <th>Bezugsdatum</th>
+                  <th>Arbeiter</th>
+                  <th>Text</th>
+                  <th>Status</th>
+                  <th>Aktionen</th>
+                </tr>
+              </thead>
+              <tbody id="requestsTableBody"></tbody>
+            </table>
+          </div>
+
+          <div id="mobileRequests" class="mobile-list is-hidden"></div>
+        </section>
       </div>
     </main>
   </div>
@@ -789,7 +967,13 @@
       missingState: document.getElementById("missingState"),
       accessState: document.getElementById("accessState"),
       networkState: document.getElementById("networkState"),
+      publicLandingState: document.getElementById("publicLandingState"),
       appContent: document.getElementById("appContent"),
+      publicCompanyName: document.getElementById("publicCompanyName"),
+      publicSubtitle: document.getElementById("publicSubtitle"),
+      publicAbout: document.getElementById("publicAbout"),
+      publicAddress: document.getElementById("publicAddress"),
+      publicEmail: document.getElementById("publicEmail"),
       summaryHeadline: document.getElementById("summaryHeadline"),
       summaryCopy: document.getElementById("summaryCopy"),
       userRole: document.getElementById("userRole"),
@@ -805,10 +989,18 @@
       desktopWorkers: document.getElementById("desktopWorkers"),
       mobileWorkers: document.getElementById("mobileWorkers"),
       workersTableBody: document.getElementById("workersTableBody"),
+      requestCountCopy: document.getElementById("requestCountCopy"),
+      emptyRequestsState: document.getElementById("emptyRequestsState"),
+      emptyRequestsCopy: document.getElementById("emptyRequestsCopy"),
+      desktopRequests: document.getElementById("desktopRequests"),
+      mobileRequests: document.getElementById("mobileRequests"),
+      requestsTableBody: document.getElementById("requestsTableBody"),
     };
 
     let dashboardData = null;
+    let requestData = [];
     let currentSearch = "";
+    let activeRequestAction = null;
 
     function showState(activeId) {
       [
@@ -816,6 +1008,7 @@
         elements.missingState,
         elements.accessState,
         elements.networkState,
+        elements.publicLandingState,
         elements.appContent,
       ].forEach((node) => {
         node.classList.toggle("is-hidden", node.id !== activeId);
@@ -880,6 +1073,80 @@
       }).format(new Date());
     }
 
+    function formatDate(value) {
+      if (!value) {
+        return "-";
+      }
+      const parsed = new Date(`${value}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) {
+        return "-";
+      }
+      return new Intl.DateTimeFormat("de-DE", {
+        dateStyle: "medium",
+      }).format(parsed);
+    }
+
+    function formatDateTime(value) {
+      if (!value) {
+        return "-";
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return "-";
+      }
+      return new Intl.DateTimeFormat("de-DE", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(parsed);
+    }
+
+    function formatRequestStatus(value) {
+      const labels = {
+        open: "Offen",
+        resolved: "Geloest",
+        rejected: "Abgelehnt",
+      };
+      return labels[value] || "Offen";
+    }
+
+    function fetchJson(path, token, options) {
+      return fetch(`${path}?token=${encodeURIComponent(token)}`, {
+        headers: {
+          Accept: "application/json",
+        },
+        cache: "no-store",
+        ...options,
+      });
+    }
+
+    function fetchPublicJson(path) {
+      return fetch(path, {
+        headers: {
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+    }
+
+    function normalisePublicProfile(payload) {
+      const profile = payload && typeof payload === "object" ? payload : {};
+      return {
+        company_name: String(profile.company_name || "Generalbau S.E.K. GmbH"),
+        subtitle: String(profile.subtitle || "Generalbau · Trockenbau · Putz & Maler · Dämmung"),
+        about_text: String(profile.about_text || "Wir bauen Zukunft - Stein auf Stein, Wand für Wand."),
+        address: String(profile.address || "-"),
+        email: String(profile.email || "-"),
+      };
+    }
+
+    function renderPublicLanding(profile) {
+      elements.publicCompanyName.textContent = profile.company_name;
+      elements.publicSubtitle.textContent = profile.subtitle;
+      elements.publicAbout.textContent = profile.about_text;
+      elements.publicAddress.textContent = profile.address;
+      elements.publicEmail.textContent = profile.email;
+    }
+
     function normaliseData(payload) {
       const user = payload && typeof payload === "object" ? payload.user || {} : {};
       const today = payload && typeof payload === "object" ? payload.today || {} : {};
@@ -903,6 +1170,18 @@
           present_today: Boolean(worker.present_today),
         })),
       };
+    }
+
+    function normaliseRequests(payload) {
+      const requests = Array.isArray(payload?.requests) ? payload.requests : [];
+      return requests.map((request) => ({
+        id: Number(request.id || 0),
+        created_at: String(request.created_at || ""),
+        related_date: request.related_date ? String(request.related_date) : "",
+        target_worker_name: String(request.target_worker_name || "-"),
+        text: String(request.text || ""),
+        status: String(request.status || "open"),
+      }));
     }
 
     function getFilteredWorkers() {
@@ -1035,17 +1314,191 @@
         .join("");
     }
 
+    function getRequestActionMarkup(request, compact) {
+      const isOpen = request.status === "open";
+      const isBusy = activeRequestAction === request.id;
+      return `
+        <div class="request-actions ${compact ? "compact" : ""}">
+          <button
+            class="button small"
+            type="button"
+            data-request-action="resolve"
+            data-request-id="${request.id}"
+            ${isOpen && !isBusy ? "" : "disabled"}
+          >
+            ${isBusy ? "Speichert" : "Loesen"}
+          </button>
+          <button
+            class="button small danger"
+            type="button"
+            data-request-action="reject"
+            data-request-id="${request.id}"
+            ${isOpen && !isBusy ? "" : "disabled"}
+          >
+            Ablehnen
+          </button>
+        </div>
+      `;
+    }
+
+    function renderRequests() {
+      const requests = [...requestData];
+      elements.requestCountCopy.textContent =
+        requests.length === 1
+          ? "1 Eintrag sichtbar."
+          : `${requests.length} Eintraege sichtbar.`;
+
+      if (!requests.length) {
+        elements.emptyRequestsCopy.textContent =
+          "Neue Problem-Meldungen erscheinen hier automatisch.";
+        elements.emptyRequestsState.classList.remove("is-hidden");
+        elements.desktopRequests.classList.add("is-hidden");
+        elements.mobileRequests.classList.add("is-hidden");
+        elements.requestsTableBody.innerHTML = "";
+        elements.mobileRequests.innerHTML = "";
+        return;
+      }
+
+      elements.emptyRequestsState.classList.add("is-hidden");
+      elements.desktopRequests.classList.remove("is-hidden");
+      elements.mobileRequests.classList.remove("is-hidden");
+
+      elements.requestsTableBody.innerHTML = requests
+        .map((request) => `
+          <tr>
+            <td class="inline-muted">${escapeHtml(formatDateTime(request.created_at))}</td>
+            <td>${escapeHtml(formatDate(request.related_date))}</td>
+            <td class="worker-name">${escapeHtml(request.target_worker_name)}</td>
+            <td class="request-text">${escapeHtml(request.text)}</td>
+            <td>
+              <span class="status-badge ${escapeHtml(request.status)}">
+                ${escapeHtml(formatRequestStatus(request.status))}
+              </span>
+            </td>
+            <td>${getRequestActionMarkup(request, false)}</td>
+          </tr>
+        `)
+        .join("");
+
+      elements.mobileRequests.innerHTML = requests
+        .map((request) => `
+          <article class="worker-card">
+            <div class="worker-card-head">
+              <div>
+                <div class="worker-name">${escapeHtml(request.target_worker_name)}</div>
+                <div class="worker-type">
+                  ${escapeHtml(formatDateTime(request.created_at))}
+                </div>
+              </div>
+              <span class="status-badge ${escapeHtml(request.status)}">
+                ${escapeHtml(formatRequestStatus(request.status))}
+              </span>
+            </div>
+            <div class="worker-card-body">
+              <div class="worker-row">
+                <span class="worker-row-label">Bezugsdatum</span>
+                <span>${escapeHtml(formatDate(request.related_date))}</span>
+              </div>
+              <div class="worker-row wrap">
+                <span class="worker-row-label">Text</span>
+                <span class="request-text">${escapeHtml(request.text)}</span>
+              </div>
+              ${getRequestActionMarkup(request, true)}
+            </div>
+          </article>
+        `)
+        .join("");
+    }
+
     function renderDashboard(data) {
       renderSummary(data);
       renderWorkers();
+      renderRequests();
+    }
+
+    async function loadRequests(token) {
+      const response = await fetchJson("/api/dashboard/requests", token);
+
+      if (response.status === 404) {
+        throw new Error("ACCESS_404");
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP_${response.status}`);
+      }
+
+      requestData = normaliseRequests(await response.json());
+    }
+
+    async function loadPublicLanding() {
+      showState("loadingState");
+      setSessionState("Oeffentliche Seite wird geladen", null);
+
+      try {
+        const response = await fetchPublicJson("/api/public/company-profile");
+        if (!response.ok) {
+          throw new Error(`HTTP_${response.status}`);
+        }
+        renderPublicLanding(normalisePublicProfile(await response.json()));
+        setSessionState("Oeffentliche Seite", "success");
+        showState("publicLandingState");
+      } catch (error) {
+        console.error("Public profile fetch failed", error);
+        setSessionState("Verbindung fehlgeschlagen", "danger");
+        showState("networkState");
+      }
+    }
+
+    async function runRequestAction(requestId, action) {
+      const token = getToken();
+
+      if (!token) {
+        await loadPublicLanding();
+        return;
+      }
+
+      activeRequestAction = requestId;
+      renderRequests();
+
+      try {
+        const response = await fetchJson(
+          `/api/dashboard/requests/${requestId}/${action}`,
+          token,
+          { method: "POST" }
+        );
+
+        if (response.status === 404) {
+          await loadPublicLanding();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP_${response.status}`);
+        }
+
+        await loadRequests(token);
+        renderRequests();
+        setSessionState("Anfrage aktualisiert", "success");
+      } catch (error) {
+        if (error.message === "ACCESS_404") {
+          await loadPublicLanding();
+          return;
+        }
+        console.error("Request action failed", error);
+        setSessionState("Aktion fehlgeschlagen", "danger");
+      } finally {
+        activeRequestAction = null;
+        if (!elements.appContent.classList.contains("is-hidden")) {
+          renderRequests();
+        }
+      }
     }
 
     async function loadDashboard() {
       const token = getToken();
 
       if (!token) {
-        setSessionState("Token fehlt", "warning");
-        showState("missingState");
+        await loadPublicLanding();
         return;
       }
 
@@ -1053,19 +1506,10 @@
       setSessionState("Dashboard wird geladen", null);
 
       try {
-        const response = await fetch(
-          `/api/dashboard/data?token=${encodeURIComponent(token)}`,
-          {
-            headers: {
-              Accept: "application/json",
-            },
-            cache: "no-store",
-          }
-        );
+        const response = await fetchJson("/api/dashboard/data", token);
 
         if (response.status === 404) {
-          setSessionState("Sitzung abgelaufen", "danger");
-          showState("accessState");
+          await loadPublicLanding();
           return;
         }
 
@@ -1074,10 +1518,15 @@
         }
 
         dashboardData = normaliseData(await response.json());
+        await loadRequests(token);
         renderDashboard(dashboardData);
         setSessionState("Sitzung aktiv", "success");
         showState("appContent");
       } catch (error) {
+        if (error.message === "ACCESS_404") {
+          await loadPublicLanding();
+          return;
+        }
         console.error("Dashboard fetch failed", error);
         setSessionState("Verbindung fehlgeschlagen", "danger");
         showState("networkState");
@@ -1088,6 +1537,24 @@
       currentSearch = event.target.value || "";
       renderWorkers();
     });
+
+    function bindRequestActions(container) {
+      container.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-request-action]");
+        if (!button || button.disabled) {
+          return;
+        }
+        const requestId = Number(button.dataset.requestId || 0);
+        const action = button.dataset.requestAction || "";
+        if (!requestId || !action) {
+          return;
+        }
+        runRequestAction(requestId, action);
+      });
+    }
+
+    bindRequestActions(elements.desktopRequests);
+    bindRequestActions(elements.mobileRequests);
 
     window.addEventListener("DOMContentLoaded", loadDashboard);
   </script>

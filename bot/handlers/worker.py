@@ -1,5 +1,6 @@
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
@@ -7,14 +8,172 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from db.models import Site, Worker, TimeEvent, EventType, LanguageSupport
+from db.models import (
+    EventType,
+    LanguageSupport,
+    Site,
+    TimeEvent,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
+from db.calendar_service import get_events_for_worker_on_date
 from db.security import encrypt_string, hash_string
-from bot.states.worker_states import WorkerOnboardingStates
-from bot.keyboards.worker_kb import get_gdpr_kb, get_language_kb, get_location_request_kb
+from bot.states.worker_states import CalendarViewStates, ReportProblemStates, WorkerOnboardingStates
+from bot.keyboards.worker_kb import (
+    get_calendar_date_kb,
+    get_gdpr_kb,
+    get_language_kb,
+    get_location_request_kb,
+    get_problem_date_kb,
+    get_worker_actions_kb,
+)
 from bot.redis_cache import redis_client
 from bot.utils.location import haversine
+from db.request_service import create_request
 
 router = Router()
+
+
+def _problem_today():
+    return datetime.now(ZoneInfo("Europe/Berlin")).date()
+
+
+def _calendar_today():
+    return datetime.now(ZoneInfo("Europe/Berlin")).date()
+
+
+def _problem_copy(key: str, locale: str) -> str:
+    copies = {
+        "choose_date": {
+            "de": "Welches Datum betrifft das Problem?",
+            "uk": "Якої дати стосується проблема?",
+        },
+        "ask_description": {
+            "de": "Beschreiben Sie das Problem kurz.",
+            "uk": "Коротко опишіть проблему.",
+        },
+        "empty_description": {
+            "de": "Bitte geben Sie eine kurze Beschreibung ein.",
+            "uk": "Будь ласка, введіть короткий опис.",
+        },
+        "created": {
+            "de": "Problem wurde gemeldet.",
+            "uk": "Проблему передано.",
+        },
+        "cancelled": {
+            "de": "Meldung abgebrochen.",
+            "uk": "Повідомлення скасовано.",
+        },
+    }
+    return copies[key]["de" if locale == "de" else "uk"]
+
+
+def _calendar_copy(key: str, locale: str, **kwargs) -> str:
+    copies = {
+        "choose_date": {
+            "de": "Welchen Tag moechten Sie ansehen?",
+            "uk": "Який день показати?",
+        },
+        "ask_manual_date": {
+            "de": "Geben Sie das Datum im Format TT.MM.JJJJ ein.",
+            "uk": "Введіть дату у форматі ДД.ММ.РРРР.",
+        },
+        "invalid_date": {
+            "de": "Ungueltiges Datum. Bitte nutzen Sie TT.MM.JJJJ.",
+            "uk": "Невірна дата. Введіть у форматі ДД.ММ.РРРР.",
+        },
+        "cancelled": {
+            "de": "Kalenderansicht abgebrochen.",
+            "uk": "Перегляд календаря скасовано.",
+        },
+        "no_events": {
+            "de": "Fuer {date_label} ist nichts erfasst.",
+            "uk": "На {date_label} нічого не зафіксовано.",
+        },
+        "events_header": {
+            "de": "Kalender fuer {date_label}:",
+            "uk": "Календар на {date_label}:",
+        },
+    }
+    template = copies[key]["de" if locale == "de" else "uk"]
+    return template.format(**kwargs)
+
+
+def _calendar_event_type_label(event_type: str, locale: str) -> str:
+    labels = {
+        "vacation": {
+            "de": "Urlaub",
+            "uk": "Відпустка",
+        },
+        "sick_leave": {
+            "de": "Krankmeldung",
+            "uk": "Лікарняний",
+        },
+        "public_holiday": {
+            "de": "Feiertag",
+            "uk": "Свято",
+        },
+        "non_working_day": {
+            "de": "Freier Tag",
+            "uk": "Неробочий день",
+        },
+    }
+    locale_key = "de" if locale == "de" else "uk"
+    return labels.get(event_type, {}).get(locale_key, event_type)
+
+
+def _format_calendar_date(value: date) -> str:
+    return value.strftime("%d.%m.%Y")
+
+
+def _format_calendar_range(date_from: date, date_to: date) -> str:
+    start = _format_calendar_date(date_from)
+    end = _format_calendar_date(date_to)
+    return start if start == end else f"{start} - {end}"
+
+
+def _is_calendar_cancel_text(text: str | None) -> bool:
+    normalized = (text or "").strip().lower()
+    return normalized in {"/cancel", "cancel", "abbrechen", "скасувати"}
+
+
+def _render_calendar_events(target_date: date, events, locale: str) -> str:
+    date_label = _format_calendar_date(target_date)
+    if not events:
+        return _calendar_copy("no_events", locale, date_label=date_label)
+
+    lines = [_calendar_copy("events_header", locale, date_label=date_label)]
+    for event in events:
+        line = (
+            f"• {_calendar_event_type_label(event.event_type, locale)}: "
+            f"{_format_calendar_range(event.date_from, event.date_to)}"
+        )
+        if event.comment:
+            line = f"{line}\n  {event.comment}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+async def _calendar_result_text(
+    session: AsyncSession,
+    current_worker: Worker,
+    target_date: date,
+    locale: str,
+) -> str:
+    events = await get_events_for_worker_on_date(
+        session,
+        worker=current_worker,
+        target_date=target_date,
+    )
+    return _render_calendar_events(target_date, events, locale)
+
+
+def _time_tracking_disabled_text(locale: str) -> str:
+    if locale == "de":
+        return "Zeiterfassung ist fuer Ihr Konto nicht aktiviert. Admin- und Dashboard-Zugriff bleiben unveraendert."
+    return "Time tracking is not enabled for your account. Admin and dashboard access stay unchanged."
+
 
 # ---------------------------------------------------------
 # INVITE ACCEPTANCE / ONBOARDING
@@ -79,6 +238,12 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
     
     tg_id_str = str(callback.from_user.id)
     
+    access_role = (
+        WorkerAccessRole.SUBCONTRACTOR.value
+        if invite_data["worker_type"] == WorkerType.SUBUNTERNEHMER.value
+        else WorkerAccessRole.WORKER.value
+    )
+
     new_worker = Worker(
         company_id=invite_data["company_id"],
         telegram_id_enc=encrypt_string(tg_id_str),
@@ -89,7 +254,9 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
         hourly_rate=invite_data["hourly_rate"],
         contract_hours_week=invite_data["contract_hours"],
         language=lang_val,
+        access_role=access_role,
         can_view_dashboard=False,
+        time_tracking_enabled=True,
         is_active=True,
         gdpr_consent_at=datetime.now(timezone.utc),
         created_by=invite_data["created_by"]    
@@ -106,8 +273,10 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
     text = t("register_complete", lang_val)
     if callback.message.reply_markup:
         await callback.message.edit_text(text)
+        menu_text = "Nutzen Sie das Menue unten." if lang_val == "de" else "Користуйтеся меню нижче."
+        await callback.message.answer(menu_text, reply_markup=get_worker_actions_kb(lang_val))
     else:
-        await callback.message.answer(text)
+        await callback.message.answer(text, reply_markup=get_worker_actions_kb(lang_val))
 
 @router.message(Command("language"))
 async def cmd_language(message: Message, session: AsyncSession, current_worker: Worker):
@@ -124,6 +293,151 @@ async def change_language(callback: CallbackQuery, session: AsyncSession, curren
     session.add(current_worker)
     await session.commit()
     await callback.message.edit_text(f"Language updated to {lang_val}.")
+
+
+@router.message(F.text == "⚠️ Проблема")
+async def start_report_problem(message: Message, state: FSMContext, current_worker: Worker, locale: str):
+    if not current_worker or not current_worker.is_active:
+        return
+
+    await state.clear()
+    await message.answer(
+        _problem_copy("choose_date", locale),
+        reply_markup=get_problem_date_kb(locale),
+    )
+    await state.set_state(ReportProblemStates.waiting_for_date)
+
+
+@router.callback_query(ReportProblemStates.waiting_for_date, F.data.startswith("problem_date_"))
+async def choose_report_problem_date(callback: CallbackQuery, state: FSMContext, locale: str):
+    date_mode = callback.data.removeprefix("problem_date_")
+    if date_mode == "cancel":
+        await state.clear()
+        await callback.message.edit_text(_problem_copy("cancelled", locale))
+        await callback.answer()
+        return
+
+    related_date = None
+    if date_mode == "today":
+        related_date = _problem_today()
+    elif date_mode == "yesterday":
+        related_date = _problem_today() - timedelta(days=1)
+
+    await state.update_data(related_date=related_date)
+    await callback.message.edit_text(_problem_copy("ask_description", locale))
+    await callback.answer()
+    await state.set_state(ReportProblemStates.waiting_for_description)
+
+
+@router.message(ReportProblemStates.waiting_for_description)
+async def submit_report_problem(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker,
+    locale: str,
+):
+    if not current_worker or not current_worker.is_active:
+        await state.clear()
+        return
+
+    description = (message.text or "").strip()
+    if not description:
+        await message.answer(_problem_copy("empty_description", locale))
+        return
+
+    data = await state.get_data()
+    await create_request(
+        session,
+        creator_worker=current_worker,
+        company_id=current_worker.company_id,
+        target_worker_id=current_worker.id,
+        related_date=data.get("related_date"),
+        text=description,
+    )
+    await state.clear()
+    await message.answer(_problem_copy("created", locale))
+
+
+@router.message(F.text == "📅 Календар")
+async def start_calendar_view(message: Message, state: FSMContext, current_worker: Worker, locale: str):
+    if not current_worker or not current_worker.is_active:
+        return
+
+    await state.clear()
+    await message.answer(
+        _calendar_copy("choose_date", locale),
+        reply_markup=get_calendar_date_kb(locale),
+    )
+    await state.set_state(CalendarViewStates.waiting_for_date_choice)
+
+
+@router.callback_query(CalendarViewStates.waiting_for_date_choice, F.data.startswith("calendar_date_"))
+async def choose_calendar_view_date(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker,
+    locale: str,
+):
+    date_mode = callback.data.removeprefix("calendar_date_")
+    if date_mode == "cancel":
+        await state.clear()
+        await callback.message.edit_text(_calendar_copy("cancelled", locale))
+        await callback.answer()
+        return
+
+    if not current_worker or not current_worker.is_active:
+        await state.clear()
+        await callback.answer()
+        return
+
+    if date_mode == "custom":
+        await callback.message.edit_text(_calendar_copy("ask_manual_date", locale))
+        await callback.answer()
+        await state.set_state(CalendarViewStates.waiting_for_manual_date)
+        return
+
+    target_date = _calendar_today()
+    if date_mode == "tomorrow":
+        target_date = _calendar_today() + timedelta(days=1)
+    elif date_mode == "yesterday":
+        target_date = _calendar_today() - timedelta(days=1)
+
+    await state.clear()
+    await callback.message.edit_text(
+        await _calendar_result_text(session, current_worker, target_date, locale)
+    )
+    await callback.answer()
+
+
+@router.message(CalendarViewStates.waiting_for_manual_date)
+async def submit_calendar_manual_date(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker,
+    locale: str,
+):
+    if not current_worker or not current_worker.is_active:
+        await state.clear()
+        return
+
+    if _is_calendar_cancel_text(message.text):
+        await state.clear()
+        await message.answer(_calendar_copy("cancelled", locale))
+        return
+
+    try:
+        target_date = datetime.strptime((message.text or "").strip(), "%d.%m.%Y").date()
+    except ValueError:
+        await message.answer(_calendar_copy("invalid_date", locale))
+        return
+
+    await state.clear()
+    await message.answer(
+        await _calendar_result_text(session, current_worker, target_date, locale)
+    )
 
 # ---------------------------------------------------------
 # QR CHECK-IN FLOW & FSM STATE TRANSITIONS
@@ -150,6 +464,10 @@ async def cmd_start_site(message: Message, state: FSMContext, session: AsyncSess
             "14772 Brandenburg an der Havel\n"
             "🌐 generalbau-sek.de"
         )
+        return
+
+    if not current_worker.time_tracking_enabled:
+        await message.answer(_time_tracking_disabled_text(locale))
         return
 
         
@@ -245,6 +563,12 @@ async def process_location(message: Message, state: FSMContext, session: AsyncSe
     
     if not pending_event or not site_id:
         # Probably sent a location randomly
+        return
+
+    if not current_worker or not current_worker.is_active or not current_worker.time_tracking_enabled:
+        from aiogram.types import ReplyKeyboardRemove
+        await message.answer(_time_tracking_disabled_text(locale), reply_markup=ReplyKeyboardRemove())
+        await state.clear()
         return
         
     lat = message.location.latitude

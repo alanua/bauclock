@@ -16,7 +16,13 @@ from api.services.dashboard_access import (
     get_dashboard_worker,
 )
 from db.database import get_db
-from db.models import Worker
+from db.models import Request, Worker
+from db.request_service import (
+    RequestAccessError,
+    list_company_requests,
+    reject_request,
+    resolve_request,
+)
 from db.security import decrypt_string
 
 
@@ -25,6 +31,58 @@ router = APIRouter()
 
 def _dashboard_access_denied() -> HTTPException:
     return HTTPException(status_code=404, detail="Not found")
+
+
+def _serialize_datetime(value) -> str | None:
+    return value.isoformat() if value else None
+
+
+async def _get_company_worker_names(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    worker_ids: set[int],
+) -> dict[int, str]:
+    if not worker_ids:
+        return {}
+
+    stmt = select(Worker).where(
+        Worker.company_id == company_id,
+        Worker.id.in_(worker_ids),
+    )
+    workers = (await db.execute(stmt)).scalars().all()
+    return {
+        company_worker.id: decrypt_string(company_worker.full_name_enc)
+        for company_worker in workers
+    }
+
+
+async def _serialize_company_requests(
+    db: AsyncSession,
+    *,
+    manager_worker: Worker,
+    requests: list[Request],
+) -> list[dict[str, str | int | None]]:
+    worker_names = await _get_company_worker_names(
+        db,
+        company_id=manager_worker.company_id,
+        worker_ids={
+            request.target_worker_id
+            for request in requests
+            if request.target_worker_id is not None
+        },
+    )
+    return [
+        {
+            "id": request.id,
+            "created_at": _serialize_datetime(request.created_at),
+            "related_date": request.related_date.isoformat() if request.related_date else None,
+            "target_worker_name": worker_names.get(request.target_worker_id, "-"),
+            "text": request.text,
+            "status": request.status,
+        }
+        for request in requests
+    ]
 
 
 @router.get("/dashboard")
@@ -49,6 +107,7 @@ async def dashboard_data(
     stmt = select(Worker).where(
         Worker.company_id == worker.company_id,
         Worker.is_active.is_(True),
+        Worker.time_tracking_enabled.is_(True),
     )
     workers = (await db.execute(stmt)).scalars().all()
     present_ids = await get_company_present_worker_ids(db, worker.company_id, today)
@@ -73,4 +132,62 @@ async def dashboard_data(
             }
             for company_worker in workers
         ],
+    }
+
+
+@router.get("/api/dashboard/requests")
+async def dashboard_requests(
+    token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        worker = await get_dashboard_worker(token, db, redis_client)
+        requests = await list_company_requests(db, manager_worker=worker)
+    except (DashboardAccessError, RequestAccessError) as exc:
+        raise _dashboard_access_denied() from exc
+
+    return {
+        "requests": await _serialize_company_requests(
+            db,
+            manager_worker=worker,
+            requests=list(requests),
+        )
+    }
+
+
+@router.api_route("/api/dashboard/requests/{request_id}/resolve", methods=["POST", "PATCH"])
+async def dashboard_request_resolve(
+    request_id: int,
+    token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        worker = await get_dashboard_worker(token, db, redis_client)
+        request = await resolve_request(db, request_id=request_id, manager_worker=worker)
+    except (DashboardAccessError, RequestAccessError) as exc:
+        raise _dashboard_access_denied() from exc
+
+    return {
+        "id": request.id,
+        "status": request.status,
+        "resolved_at": _serialize_datetime(request.resolved_at),
+    }
+
+
+@router.api_route("/api/dashboard/requests/{request_id}/reject", methods=["POST", "PATCH"])
+async def dashboard_request_reject(
+    request_id: int,
+    token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        worker = await get_dashboard_worker(token, db, redis_client)
+        request = await reject_request(db, request_id=request_id, manager_worker=worker)
+    except (DashboardAccessError, RequestAccessError) as exc:
+        raise _dashboard_access_denied() from exc
+
+    return {
+        "id": request.id,
+        "status": request.status,
+        "resolved_at": _serialize_datetime(request.resolved_at),
     }

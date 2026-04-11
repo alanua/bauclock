@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import BillingType, Company, Worker, WorkerType
+from db.models import BillingType, Company, Worker, WorkerAccessRole, WorkerType
 from db.security import encrypt_string, hash_string
 
 
@@ -25,6 +25,9 @@ async def ensure_company_owner_worker(
         if not existing_worker.can_view_dashboard:
             existing_worker.can_view_dashboard = True
             updated = True
+        if existing_worker.access_role != WorkerAccessRole.COMPANY_OWNER.value:
+            existing_worker.access_role = WorkerAccessRole.COMPANY_OWNER.value
+            updated = True
         if not existing_worker.is_active:
             existing_worker.is_active = True
             updated = True
@@ -43,7 +46,9 @@ async def ensure_company_owner_worker(
         full_name_enc=encrypt_string(telegram_user.full_name or "Chief Owner"),
         worker_type=WorkerType.FESTANGESTELLT,
         billing_type=BillingType.HOURLY,
+        access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
+        time_tracking_enabled=True,
         is_active=True,
         created_by=None,
     )

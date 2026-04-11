@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select, func
+from access.legacy_policy import can_view_admin_features
 from api.bot_client import send_telegram_message, send_telegram_document
 from api.logger import logger
 from api.config import settings
@@ -19,7 +20,10 @@ async def check_arbzg_pauses():
     logger.info("Executing ArbZG pause check...")
     async with async_session_maker() as session:
         today = datetime.now(timezone.utc).date()
-        stmt = select(Worker).where(Worker.is_active == True)
+        stmt = select(Worker).where(
+            Worker.is_active.is_(True),
+            Worker.time_tracking_enabled.is_(True),
+        )
         workers = (await session.execute(stmt)).scalars().all()
         now = datetime.now(timezone.utc)
         for w in workers:
@@ -53,8 +57,12 @@ async def check_arbzg_pauses():
                         await send_telegram_message(tg_id, msg, settings.BOT_TOKEN)
                     except Exception:
                         pass
-                    ch_stmt = select(Worker).where(Worker.company_id == w.company_id, Worker.can_view_dashboard == True)
-                    chiefs = (await session.execute(ch_stmt)).scalars().all()
+                    ch_stmt = select(Worker).where(Worker.company_id == w.company_id)
+                    chiefs = [
+                        worker
+                        for worker in (await session.execute(ch_stmt)).scalars().all()
+                        if can_view_admin_features(worker)
+                    ]
                     w_name = decrypt_string(w.full_name_enc)
                     for c in chiefs:
                         try:
@@ -75,7 +83,16 @@ async def warn_unclosed_days_1800():
     logger.info("Executing 18:00 unclosed days check...")
     async with async_session_maker() as session:
         today = datetime.now(timezone.utc).date()
-        stmt = select(Worker).join(TimeEvent).where(func.date(TimeEvent.timestamp) == today).distinct()
+        stmt = (
+            select(Worker)
+            .join(TimeEvent)
+            .where(
+                Worker.is_active.is_(True),
+                Worker.time_tracking_enabled.is_(True),
+                func.date(TimeEvent.timestamp) == today,
+            )
+            .distinct()
+        )
         workers = (await session.execute(stmt)).scalars().all()
         for w in workers:
             ev_stmt = select(TimeEvent).where(
@@ -96,7 +113,16 @@ async def alert_unclosed_days_2000():
     logger.info("Executing 20:00 unclosed days alert...")
     async with async_session_maker() as session:
         today = datetime.now(timezone.utc).date()
-        stmt = select(Worker).join(TimeEvent).where(func.date(TimeEvent.timestamp) == today).distinct()
+        stmt = (
+            select(Worker)
+            .join(TimeEvent)
+            .where(
+                Worker.is_active.is_(True),
+                Worker.time_tracking_enabled.is_(True),
+                func.date(TimeEvent.timestamp) == today,
+            )
+            .distinct()
+        )
         workers = (await session.execute(stmt)).scalars().all()
         for w in workers:
             ev_stmt = select(TimeEvent).where(
@@ -105,8 +131,12 @@ async def alert_unclosed_days_2000():
             ).order_by(TimeEvent.timestamp.desc()).limit(1)
             last_event = (await session.execute(ev_stmt)).scalar_one_or_none()
             if last_event and last_event.event_type != EventType.CHECKOUT:
-                stmt_chiefs = select(Worker).where(Worker.company_id == w.company_id, Worker.can_view_dashboard == True)
-                chiefs = (await session.execute(stmt_chiefs)).scalars().all()
+                stmt_chiefs = select(Worker).where(Worker.company_id == w.company_id)
+                chiefs = [
+                    worker
+                    for worker in (await session.execute(stmt_chiefs)).scalars().all()
+                    if can_view_admin_features(worker)
+                ]
                 name = decrypt_string(w.full_name_enc)
                 for c in chiefs:
                     try:
@@ -126,7 +156,11 @@ async def generate_weekly_report():
         for comp_id in companies:
             if not comp_id:
                 continue
-            w_stmt = select(Worker).where(Worker.company_id == comp_id, Worker.is_active == True)
+            w_stmt = select(Worker).where(
+                Worker.company_id == comp_id,
+                Worker.is_active.is_(True),
+                Worker.time_tracking_enabled.is_(True),
+            )
             workers = (await session.execute(w_stmt)).scalars().all()
             report_data = []
             for w in workers:
@@ -155,8 +189,12 @@ async def generate_weekly_report():
             if not report_data:
                 continue
             pdf_bytes = generate_pdf(comp_id, start_of_week, end_of_week, report_data)
-            c_stmt = select(Worker).where(Worker.company_id == comp_id, Worker.can_view_dashboard == True, Worker.is_active == True)
-            chiefs = (await session.execute(c_stmt)).scalars().all()
+            c_stmt = select(Worker).where(Worker.company_id == comp_id, Worker.is_active == True)
+            chiefs = [
+                worker
+                for worker in (await session.execute(c_stmt)).scalars().all()
+                if can_view_admin_features(worker)
+            ]
             for c in chiefs:
                 try:
                     c_tg = int(decrypt_string(c.telegram_id_enc))
@@ -170,7 +208,11 @@ async def monitor_minijob_limits():
     async with async_session_maker() as session:
         today = datetime.now(timezone.utc).date()
         start_of_month = today.replace(day=1)
-        stmt = select(Worker).where(Worker.worker_type == WorkerType.MINIJOB, Worker.is_active == True)
+        stmt = select(Worker).where(
+            Worker.worker_type == WorkerType.MINIJOB,
+            Worker.is_active.is_(True),
+            Worker.time_tracking_enabled.is_(True),
+        )
         minis = (await session.execute(stmt)).scalars().all()
         for w in minis:
             pymt_stmt = select(func.sum(Payment.amount_paid)).where(
@@ -184,8 +226,12 @@ async def monitor_minijob_limits():
                     w_tg = int(decrypt_string(w.telegram_id_enc))
                     msg_w = f"KRITISCH: Fast am Minijob-Limit! (€{paid_m:.2f}/538€)" if w.language.value == "de" else f"КРИТИЧНО: Майже ліміт! (€{paid_m:.2f}/538€)"
                     await send_telegram_message(w_tg, msg_w, settings.BOT_TOKEN)
-                    ch_stmt = select(Worker).where(Worker.company_id == w.company_id, Worker.can_view_dashboard == True)
-                    chiefs = (await session.execute(ch_stmt)).scalars().all()
+                    ch_stmt = select(Worker).where(Worker.company_id == w.company_id)
+                    chiefs = [
+                        worker
+                        for worker in (await session.execute(ch_stmt)).scalars().all()
+                        if can_view_admin_features(worker)
+                    ]
                     for c in chiefs:
                         c_tg = int(decrypt_string(c.telegram_id_enc))
                         await send_telegram_message(c_tg, f"KRITISCH: Minijobber {w_name} fast am Limit! (€{paid_m:.2f}/538€)", settings.BOT_TOKEN)
@@ -196,8 +242,12 @@ async def monitor_minijob_limits():
                     w_tg = int(decrypt_string(w.telegram_id_enc))
                     msg_w = f"Warnung: Minijob-Grenze naht (€{paid_m:.2f}/538€)" if w.language.value == "de" else f"Попередження: Наближення ліміту (€{paid_m:.2f}/538€)"
                     await send_telegram_message(w_tg, msg_w, settings.BOT_TOKEN)
-                    ch_stmt = select(Worker).where(Worker.company_id == w.company_id, Worker.can_view_dashboard == True)
-                    chiefs = (await session.execute(ch_stmt)).scalars().all()
+                    ch_stmt = select(Worker).where(Worker.company_id == w.company_id)
+                    chiefs = [
+                        worker
+                        for worker in (await session.execute(ch_stmt)).scalars().all()
+                        if can_view_admin_features(worker)
+                    ]
                     for c in chiefs:
                         c_tg = int(decrypt_string(c.telegram_id_enc))
                         await send_telegram_message(c_tg, f"Minijob-Warnung: {w_name} nähert sich 538€ (€{paid_m:.2f})", settings.BOT_TOKEN)

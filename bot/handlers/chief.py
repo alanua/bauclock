@@ -9,7 +9,8 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from db.models import Company, Site, Worker, WorkerType, BillingType
+from access.legacy_policy import can_access_dashboard
+from db.models import Company, Site, Worker, WorkerAccessRole, WorkerType, BillingType
 from db.security import encrypt_string, hash_string
 from bot.states.chief_states import ChiefRegistrationStates, AddWorkerStates
 from bot.keyboards.chief_kb import get_worker_type_kb, get_cancel_kb
@@ -194,7 +195,9 @@ async def process_company_email(message: Message, state: FSMContext, session: As
         full_name_enc=encrypt_string(message.from_user.full_name or "Chief/Owner"),
         worker_type=WorkerType.FESTANGESTELLT,
         billing_type=BillingType.HOURLY,
+        access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
+        time_tracking_enabled=True,
         is_active=True,
         created_by=None  # The chief creates themselves
     )
@@ -258,7 +261,7 @@ async def process_site_name(message: Message, state: FSMContext, session: AsyncS
 @router.message(Command("add_worker"))
 async def cmd_add_worker(message: Message, state: FSMContext, current_worker: Worker, locale: str):
     # Only Chief (Owner/Waldemar) or Bauleiter (Torsten) can add workers
-    if not current_worker or not current_worker.is_active or not current_worker.can_view_dashboard:
+    if not can_access_dashboard(current_worker):
         text = "Keine Berechtigung. Nur für Owner (Waldemar) oder Bauleiter (Torsten)." if locale == "de" else "Немає доступу."
         await message.answer(text)
         return
