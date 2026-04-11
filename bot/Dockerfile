@@ -14,5 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY ./bot /app/bot
 COPY ./db /app/db
+COPY ./access /app/access
 
 CMD ["python", "-m", "bot.main"]
