@@ -17,8 +17,13 @@ os.environ.setdefault(
 )
 os.environ.setdefault("HASH_PEPPER", "test_pepper")
 
-from api.routers.public import get_company_public_profile
-from db.models import Base, Company, CompanyPublicProfile
+from api.routers.public import (
+    get_company_public_page,
+    get_company_public_profile,
+    get_default_company_public_page,
+    get_site_public_page,
+)
+from db.models import Base, Company, CompanyPublicProfile, Site
 
 
 def run_db_test(test_coro):
@@ -71,6 +76,114 @@ def test_public_company_profile_endpoint_returns_active_sek_profile():
             "address": "Am Industriegelände 3, 14772 Brandenburg an der Havel",
             "email": "kontakt@generalbau-sek.de",
         }
+
+    run_db_test(run_test)
+
+
+def test_public_company_page_is_informational_only():
+    async def run_test(session):
+        company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        session.add(company)
+        await session.flush()
+        session.add(
+            CompanyPublicProfile(
+                company_id=company.id,
+                slug="sek",
+                company_name="Generalbau S.E.K. GmbH",
+                subtitle="Generalbau · Trockenbau · Putz & Maler · Daemmung",
+                about_text="Wir bauen Zukunft - Stein auf Stein, Wand fuer Wand.",
+                address="Am Industriegelaende 3, 14772 Brandenburg an der Havel",
+                email="kontakt@generalbau-sek.de",
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+        response = await get_default_company_public_page(db=session)
+        html = response.body.decode()
+
+        assert "Generalbau S.E.K. GmbH" in html
+        assert "kontakt@generalbau-sek.de" in html
+        assert "<button" not in html
+        assert "href=" not in html
+        assert "Dashboard" not in html
+        assert "Zeiterfassung" not in html
+        assert "Zugriff" not in html
+        assert "Mitarbeiter" not in html
+
+    run_db_test(run_test)
+
+
+def test_public_site_page_is_informational_only():
+    async def run_test(session):
+        company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        session.add(company)
+        await session.flush()
+        session.add(
+            Site(
+                company_id=company.id,
+                name="Objekt Brandenburg",
+                description="Zufahrt ueber Tor 2.",
+                address="Am Industriegelaende 3",
+                qr_token="site_public",
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+        response = await get_site_public_page("site_public", db=session)
+        html = response.body.decode()
+
+        assert "Objekt Brandenburg" in html
+        assert "Zufahrt ueber Tor 2." in html
+        assert "Generalbau S.E.K. GmbH" in html
+        assert "<button" not in html
+        assert "href=" not in html
+        assert "Dashboard" not in html
+        assert "Zeiterfassung" not in html
+        assert "Check-in" not in html
+        assert "Zugriff" not in html
+        assert "Mitarbeiter" not in html
+
+    run_db_test(run_test)
+
+
+def test_public_company_page_escapes_profile_content():
+    async def run_test(session):
+        company = Company(
+            name="SEK",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        session.add(company)
+        await session.flush()
+        session.add(
+            CompanyPublicProfile(
+                company_id=company.id,
+                slug="sek",
+                company_name="<SEK>",
+                subtitle="<script>alert(1)</script>",
+                about_text="Plain",
+                address="Address",
+                email=None,
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+        response = await get_company_public_page("sek", db=session)
+        html = response.body.decode()
+
+        assert "&lt;SEK&gt;" in html
+        assert "<script>" not in html
 
     run_db_test(run_test)
 

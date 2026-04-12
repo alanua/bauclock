@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from db.models import (
+    Company,
     EventType,
     LanguageSupport,
     Site,
@@ -19,7 +20,12 @@ from db.models import (
 )
 from db.calendar_service import get_events_for_worker_on_date
 from db.security import encrypt_string, hash_string
-from bot.states.worker_states import CalendarViewStates, ReportProblemStates, WorkerOnboardingStates
+from bot.states.worker_states import (
+    CalendarViewStates,
+    ReportProblemStates,
+    TimeEventSelectionStates,
+    WorkerOnboardingStates,
+)
 from bot.keyboards.worker_kb import (
     get_calendar_date_kb,
     get_gdpr_kb,
@@ -175,6 +181,48 @@ def _time_tracking_disabled_text(locale: str) -> str:
     return "Time tracking is not enabled for your account. Admin and dashboard access stay unchanged."
 
 
+TIME_EVENT_ACTIONS = {
+    "Ankunft": EventType.CHECKIN,
+    "Arrival": EventType.CHECKIN,
+    "Pause starten": EventType.PAUSE_START,
+    "Start break": EventType.PAUSE_START,
+    "Pause beenden": EventType.PAUSE_END,
+    "End break": EventType.PAUSE_END,
+    "Feierabend": EventType.CHECKOUT,
+    "Exit": EventType.CHECKOUT,
+}
+
+
+def _parse_site_qr_token(text: str | None) -> str:
+    parts = (text or "").strip().split(maxsplit=1)
+    if len(parts) != 2:
+        return ""
+    token = parts[1].strip()
+    return token if token.startswith("site_") else ""
+
+
+async def _public_site_text(session: AsyncSession, site: Site) -> str:
+    company = await session.get(Company, site.company_id)
+    company_name = company.name if company else "Generalbau S.E.K. GmbH"
+    lines = [company_name, "", site.name]
+    if site.address:
+        lines.extend(["", site.address])
+    if site.description:
+        lines.extend(["", site.description])
+    return "\n".join(lines)
+
+
+def _event_label(event_type: EventType, locale: str) -> str:
+    labels = {
+        EventType.CHECKIN: {"de": "Ankunft", "other": "Arrival"},
+        EventType.PAUSE_START: {"de": "Pause starten", "other": "Start break"},
+        EventType.PAUSE_END: {"de": "Pause beenden", "other": "End break"},
+        EventType.CHECKOUT: {"de": "Feierabend", "other": "Exit"},
+    }
+    key = "de" if locale == "de" else "other"
+    return labels[event_type][key]
+
+
 # ---------------------------------------------------------
 # INVITE ACCEPTANCE / ONBOARDING
 # ---------------------------------------------------------
@@ -293,6 +341,32 @@ async def change_language(callback: CallbackQuery, session: AsyncSession, curren
     session.add(current_worker)
     await session.commit()
     await callback.message.edit_text(f"Language updated to {lang_val}.")
+
+
+@router.message(F.text.in_(list(TIME_EVENT_ACTIONS.keys())))
+async def start_time_event_action(message: Message, state: FSMContext, current_worker: Worker, locale: str):
+    if not current_worker or not current_worker.is_active:
+        return
+
+    if not current_worker.time_tracking_enabled:
+        await state.clear()
+        await message.answer(_time_tracking_disabled_text(locale))
+        return
+
+    next_event = TIME_EVENT_ACTIONS.get((message.text or "").strip())
+    if not next_event:
+        return
+
+    await state.clear()
+    await state.update_data(pending_event=next_event.value)
+    await state.set_state(TimeEventSelectionStates.waiting_for_site_qr)
+    text = (
+        f"Aktion: {_event_label(next_event, locale)}\n"
+        "Scannen Sie jetzt den Objekt-QR."
+        if locale == "de"
+        else f"Action: {_event_label(next_event, locale)}\nScan the site QR now."
+    )
+    await message.answer(text)
 
 
 @router.message(F.text == "⚠️ Проблема")
@@ -445,6 +519,10 @@ async def submit_calendar_manual_date(
 
 @router.message(Command("start"), F.text.startswith("/start site_"))
 async def cmd_start_site(message: Message, state: FSMContext, session: AsyncSession, current_worker: Worker, locale: str):
+    qr_token = _parse_site_qr_token(message.text)
+    if not qr_token:
+        return
+
     # Verify the site exists and is active
     stmt = select(Site).where(Site.qr_token == qr_token, Site.is_active == True)
     site = (await session.execute(stmt)).scalar_one_or_none()
@@ -452,6 +530,14 @@ async def cmd_start_site(message: Message, state: FSMContext, session: AsyncSess
     if not site:
         text = "Dieser QR-Code ist ungültig oder die Baustelle wurde deaktiviert." if locale == "de" else "Цей QR-код недійсний або об'єкт деактивовано."
         await message.answer(text)
+        return
+
+    state_data = await state.get_data()
+    pending_event = state_data.get("pending_event")
+
+    if not current_worker or not current_worker.is_active or not pending_event:
+        await state.clear()
+        await message.answer(await _public_site_text(session, site))
         return
 
     # Handle unknown user (not registered in DB)
@@ -483,6 +569,26 @@ async def cmd_start_site(message: Message, state: FSMContext, session: AsyncSess
         await message.answer(text)
         return
         
+    try:
+        next_event = EventType(pending_event)
+    except ValueError:
+        await state.clear()
+        await message.answer(await _public_site_text(session, site))
+        return
+
+    await state.update_data(pending_event=next_event.value, site_id=site.id)
+    text = (
+        f"Baustelle: {site.name}\n"
+        f"Aktion: {_event_label(next_event, locale)}\n\n"
+        "Bitte senden Sie uns Ihren GPS-Standort zur Verifizierung (Button unten)."
+        if locale == "de"
+        else f"Site: {site.name}\n"
+        f"Action: {_event_label(next_event, locale)}\n\n"
+        "Please send your GPS location for verification using the button below."
+    )
+    await message.answer(text, reply_markup=get_location_request_kb(locale))
+    return
+
     # Determine next state transition based on today's logs for this worker
     # Fetch today's last event to see current state
     last_event_stmt = select(TimeEvent).where(

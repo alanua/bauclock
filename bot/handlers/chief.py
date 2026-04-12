@@ -230,8 +230,7 @@ async def process_site_name(message: Message, state: FSMContext, session: AsyncS
     session.add(new_site)
     await session.commit()
     
-    # Real link will be handled via FastAPI redirect
-    # But for now, using Telegram deep link for direct bot access
+    # QR opens the bot; public/direct opens show neutral site info unless a worker chose an action first.
     tg_link = f"https://t.me/{bot_config.BOT_USERNAME}?start={qr_token}"
     
     # 1. Generate QR Code Photo
@@ -244,7 +243,7 @@ async def process_site_name(message: Message, state: FSMContext, session: AsyncS
 
     text = (
         f"Baustelle '{site_name}' erstellt!\n\n"
-        f"Hier ist der QR-Code für den Check-in vor Ort.\n\n"
+        f"Hier ist der QR-Code fuer die Objektseite vor Ort.\n\n"
         f"Waldemar (Owner), Torsten (Bauleiter) und Tobias (Objektbetreuer) "
         f"können nun mit der Verwaltung beginnen."
     ) if locale == "de" else (

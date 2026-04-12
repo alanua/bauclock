@@ -37,7 +37,7 @@ def generate_site_pdf(qr_url: str, company_name: str, site_name: str, site_addre
         font_small = font_large
 
     # Title
-    draw.text((width//2, 100), "SEK Zeiterfassung", font=font_large, fill="#1A56DB", anchor="mm")
+    draw.text((width//2, 100), "SEK BauClock", font=font_large, fill="#1A56DB", anchor="mm")
 
     # Site name
     draw.text((width//2, 870), site_name, font=font_large, fill="#0D0D0D", anchor="mm")
@@ -50,8 +50,7 @@ def generate_site_pdf(qr_url: str, company_name: str, site_name: str, site_addre
     draw.text((width//2, 1060), company_name, font=font_med, fill="#333333", anchor="mm")
 
     # Instruction
-    draw.text((width//2, 1200), "Scan mit Telegram für Zeiterfassung", font=font_small, fill="#888888", anchor="mm")
-    draw.text((width//2, 1250), "Скануйте через Telegram для обліку часу", font=font_small, fill="#888888", anchor="mm")
+    draw.text((width//2, 1200), "Objektinformation", font=font_small, fill="#888888", anchor="mm")
 
     # Border
     draw.rectangle([(40, 40), (width-40, height-40)], outline="#1A56DB", width=4)

@@ -13,3 +13,7 @@ class ReportProblemStates(StatesGroup):
 class CalendarViewStates(StatesGroup):
     waiting_for_date_choice = State()
     waiting_for_manual_date = State()
+
+
+class TimeEventSelectionStates(StatesGroup):
+    waiting_for_site_qr = State()

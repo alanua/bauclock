@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from db.models import Base, BillingType, Company, Request, Worker, WorkerType
+from db.models import Base, BillingType, Company, EventType, Request, Site, Worker, WorkerType
 
 
 class Filter:
@@ -164,6 +164,59 @@ def test_opening_problem_flow():
         assert state.clear_count == 1
 
     asyncio.run(run_test())
+
+
+def test_worker_selects_private_time_action_before_qr_scan():
+    async def run_test():
+        state = FakeState()
+        worker = SimpleNamespace(id=1, company_id=1, is_active=True, time_tracking_enabled=True)
+        message = FakeMessage("Ankunft")
+
+        await worker_handler.start_time_event_action(message, state, worker, "de")
+
+        assert state.data["pending_event"] == EventType.CHECKIN.value
+        assert state.current_state == worker_handler.TimeEventSelectionStates.waiting_for_site_qr
+        message.answer.assert_awaited_once()
+
+    asyncio.run(run_test())
+
+
+def test_direct_site_qr_scan_without_pending_action_returns_public_info():
+    async def run_test(session):
+        company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        session.add(company)
+        await session.flush()
+        session.add(
+            Site(
+                company_id=company.id,
+                name="Objekt Brandenburg",
+                description="Zufahrt ueber Tor 2.",
+                address="Am Industriegelaende 3",
+                qr_token="site_public",
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+        state = FakeState()
+        worker = SimpleNamespace(id=1, company_id=company.id, is_active=True, time_tracking_enabled=True)
+        message = FakeMessage("/start site_public")
+
+        await worker_handler.cmd_start_site(message, state, session, worker, "de")
+
+        message.answer.assert_awaited_once()
+        answer_text = message.answer.await_args.args[0]
+        assert "Generalbau S.E.K. GmbH" in answer_text
+        assert "Objekt Brandenburg" in answer_text
+        assert "Zufahrt ueber Tor 2." in answer_text
+        assert "Standort" not in answer_text
+        assert "Zeiterfassung" not in answer_text
+
+    run_db_test(run_test)
 
 
 def test_choosing_problem_date_mode(monkeypatch):

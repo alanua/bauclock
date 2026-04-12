@@ -4,10 +4,14 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 def get_worker_actions_kb(locale: str) -> ReplyKeyboardMarkup:
     if locale == "de":
         rows = [
+            [KeyboardButton(text="Ankunft"), KeyboardButton(text="Pause starten")],
+            [KeyboardButton(text="Pause beenden"), KeyboardButton(text="Feierabend")],
             [KeyboardButton(text="⚠️ Problem"), KeyboardButton(text="📅 Kalender")],
         ]
     else:
         rows = [
+            [KeyboardButton(text="Arrival"), KeyboardButton(text="Start break")],
+            [KeyboardButton(text="End break"), KeyboardButton(text="Exit")],
             [KeyboardButton(text="⚠️ Проблема"), KeyboardButton(text="📅 Календар")],
         ]
 
