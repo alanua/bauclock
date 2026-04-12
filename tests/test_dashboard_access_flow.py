@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -557,9 +557,32 @@ def test_get_company_present_worker_ids_excludes_tracking_disabled_workers():
 
 
 def test_dashboard_route_returns_shell_for_missing_token():
-    response = asyncio.run(dashboard_router.serve_dashboard(token=None))
+    request = SimpleNamespace(url=SimpleNamespace(include_query_params=lambda **kwargs: ""))
+    response = asyncio.run(
+        dashboard_router.serve_dashboard(
+            request=request,
+            token=None,
+            version=dashboard_router.DASHBOARD_SHELL_VERSION,
+        )
+    )
     assert isinstance(response, FileResponse)
     assert response.path.endswith("api/static/dashboard.html")
+
+
+def test_dashboard_route_redirects_unversioned_shell():
+    request = SimpleNamespace(
+        url=SimpleNamespace(
+            include_query_params=lambda **kwargs: f"https://testserver/dashboard?v={kwargs['v']}"
+        )
+    )
+    response = asyncio.run(
+        dashboard_router.serve_dashboard(request=request, token=None, version=None)
+    )
+
+    assert isinstance(response, RedirectResponse)
+    assert response.headers["location"].endswith(
+        f"/dashboard?v={dashboard_router.DASHBOARD_SHELL_VERSION}"
+    )
 
 
 def test_dashboard_data_route_returns_404_for_invalid_token(monkeypatch):

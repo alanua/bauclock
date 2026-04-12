@@ -2,7 +2,12 @@ sekbot.duckdns.org {
     encode zstd gzip
 
     @root path /
-    redir @root /dashboard 302
+    redir @root /dashboard?v=20260412-auto-miniapp 302
+
+    @dashboardShell path /dashboard
+    header @dashboardShell Cache-Control "no-store, no-cache, max-age=0, must-revalidate, private"
+    header @dashboardShell Pragma "no-cache"
+    header @dashboardShell Expires "0"
 
     @dashboardHead {
         method HEAD

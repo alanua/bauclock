@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     DATABASE_URL: str = "sqlite+aiosqlite:///./bauclock.db"
     BOT_TOKEN: str = ""
-    BOT_USERNAME: str = "SEKbaubot"
+    BOT_USERNAME: str = "SEKbot"
     ENCRYPTION_KEY: str
     OWNER_PHONE: str = "+49176807279824"
     REDIS_URL: str = "redis://redis:6379/0"

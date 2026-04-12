@@ -22,7 +22,11 @@ from db.models import (
 from db.security import encrypt_string, hash_string
 
 
-DASHBOARD_RESPONSE_HEADERS = {"Cache-Control": "no-store"}
+DASHBOARD_RESPONSE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate, private",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 
 class DashboardAccessError(Exception):

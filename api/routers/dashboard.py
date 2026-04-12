@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request as FastAPIRequest
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from db.security import decrypt_string
 
 
 router = APIRouter()
+DASHBOARD_SHELL_VERSION = "20260412-auto-miniapp"
 
 
 class MiniAppBootstrapRequest(BaseModel):
@@ -130,8 +131,16 @@ async def _get_authenticated_dashboard_context(
 
 @router.get("/dashboard")
 async def serve_dashboard(
+    request: FastAPIRequest,
     token: str | None = Query(default=None),
+    version: str | None = Query(default=None, alias="v"),
 ):
+    if version != DASHBOARD_SHELL_VERSION:
+        return RedirectResponse(
+            str(request.url.include_query_params(v=DASHBOARD_SHELL_VERSION)),
+            status_code=307,
+            headers=DASHBOARD_RESPONSE_HEADERS,
+        )
     return FileResponse("api/static/dashboard.html", headers=DASHBOARD_RESPONSE_HEADERS)
 
 

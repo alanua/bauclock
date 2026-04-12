@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://redis:6379/0"
     DATABASE_URL: str = "sqlite+aiosqlite:///./bauclock.db"
     APP_URL: str = "https://sekbot.duckdns.org"
-    BOT_USERNAME: str = "SEKbaubot"
+    BOT_USERNAME: str = "SEKbot"
     OWNER_PHONE: str = "+49176807279824"
     ADMIN_USERNAMES: list = ["AnOleksii"]
 
