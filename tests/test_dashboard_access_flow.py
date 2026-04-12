@@ -557,7 +557,7 @@ def test_get_company_present_worker_ids_excludes_tracking_disabled_workers():
 
 
 def test_dashboard_route_returns_shell_for_missing_token():
-    request = SimpleNamespace(url=SimpleNamespace(include_query_params=lambda **kwargs: ""))
+    request = SimpleNamespace(url=SimpleNamespace(path="/dashboard"), query_params={})
     response = asyncio.run(
         dashboard_router.serve_dashboard(
             request=request,
@@ -570,18 +570,31 @@ def test_dashboard_route_returns_shell_for_missing_token():
 
 
 def test_dashboard_route_redirects_unversioned_shell():
-    request = SimpleNamespace(
-        url=SimpleNamespace(
-            include_query_params=lambda **kwargs: f"https://testserver/dashboard?v={kwargs['v']}"
-        )
-    )
+    request = SimpleNamespace(url=SimpleNamespace(path="/dashboard"), query_params={})
     response = asyncio.run(
         dashboard_router.serve_dashboard(request=request, token=None, version=None)
     )
 
     assert isinstance(response, RedirectResponse)
-    assert response.headers["location"].endswith(
-        f"/dashboard?v={dashboard_router.DASHBOARD_SHELL_VERSION}"
+    assert response.headers["location"] == f"/dashboard?v={dashboard_router.DASHBOARD_SHELL_VERSION}"
+
+
+def test_dashboard_route_preserves_legacy_token_on_version_redirect():
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/dashboard"),
+        query_params={"token": "legacy-token"},
+    )
+    response = asyncio.run(
+        dashboard_router.serve_dashboard(
+            request=request,
+            token="legacy-token",
+            version=None,
+        )
+    )
+
+    assert isinstance(response, RedirectResponse)
+    assert response.headers["location"] == (
+        f"/dashboard?token=legacy-token&v={dashboard_router.DASHBOARD_SHELL_VERSION}"
     )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from types import SimpleNamespace
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request as FastAPIRequest
 from fastapi.responses import FileResponse, RedirectResponse
@@ -136,8 +137,10 @@ async def serve_dashboard(
     version: str | None = Query(default=None, alias="v"),
 ):
     if version != DASHBOARD_SHELL_VERSION:
+        query_params = dict(request.query_params)
+        query_params["v"] = DASHBOARD_SHELL_VERSION
         return RedirectResponse(
-            str(request.url.include_query_params(v=DASHBOARD_SHELL_VERSION)),
+            f"{request.url.path}?{urlencode(query_params)}",
             status_code=307,
             headers=DASHBOARD_RESPONSE_HEADERS,
         )
