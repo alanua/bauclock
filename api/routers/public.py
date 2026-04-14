@@ -46,7 +46,7 @@ def _fact(label: str, value: str | None) -> str:
     clean_value = (value or "").strip()
     if not clean_value:
         return ""
-    return f"""<div>
+    return f"""<div class="fact">
   <span class="label">{escape(label)}</span>
   <div class="value">{escape(clean_value)}</div>
 </div>"""
@@ -61,82 +61,137 @@ def _public_page(title: str, body: str) -> HTMLResponse:
   <title>{escape(title)}</title>
   <style>
     :root {{
-      --bg: #f7f8fa;
-      --surface: #ffffff;
-      --text: #1b1f24;
-      --muted: #637083;
-      --line: #dde3ea;
-      --accent: #2f6f5e;
+      --bg: #f3efe7;
+      --surface: #fffdf8;
+      --surface-soft: #faf6ee;
+      --text: #20342d;
+      --muted: #65736c;
+      --line: rgba(58, 76, 67, 0.12);
+      --accent: #a9ddca;
+      --accent-strong: #3d7f69;
+      --shadow: 0 24px 60px rgba(49, 67, 58, 0.11), 0 8px 24px rgba(49, 67, 58, 0.08);
+      --shadow-soft: 0 12px 34px rgba(49, 67, 58, 0.08);
     }}
     * {{
       box-sizing: border-box;
+    }}
+    html {{
+      min-width: 320px;
     }}
     body {{
       margin: 0;
       min-height: 100vh;
       font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       color: var(--text);
-      background: var(--bg);
+      background:
+        radial-gradient(circle at 12% 0%, rgba(169, 221, 202, 0.33), transparent 34%),
+        linear-gradient(180deg, #fffaf2 0%, var(--bg) 100%);
       display: grid;
       place-items: center;
-      padding: 32px 18px;
+      padding: clamp(22px, 5vw, 58px) 18px;
     }}
     main {{
-      width: min(720px, 100%);
+      width: min(780px, 100%);
       background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: clamp(24px, 5vw, 42px);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      border-radius: 30px;
+      box-shadow: var(--shadow);
+      padding: clamp(26px, 6vw, 54px);
+      position: relative;
+      overflow: hidden;
+    }}
+    main::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(135deg, rgba(169, 221, 202, 0.22), transparent 36%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.74), transparent 28%);
+    }}
+    .content {{
+      position: relative;
+      display: grid;
+      gap: clamp(22px, 4vw, 34px);
     }}
     .eyebrow {{
-      margin: 0 0 10px;
-      color: var(--accent);
+      width: fit-content;
+      margin: 0;
+      color: var(--accent-strong);
+      background: rgba(169, 221, 202, 0.45);
+      border: 1px solid rgba(107, 153, 136, 0.18);
+      border-radius: 999px;
+      box-shadow: var(--shadow-soft);
+      padding: 8px 14px;
       font-size: 13px;
       font-weight: 700;
-      letter-spacing: 0;
       text-transform: uppercase;
     }}
     h1 {{
       margin: 0;
-      font-size: clamp(28px, 6vw, 44px);
-      line-height: 1.05;
+      font-size: clamp(32px, 8vw, 56px);
+      line-height: 1.02;
       letter-spacing: 0;
     }}
     .subtitle {{
-      margin: 14px 0 0;
+      margin: 16px 0 0;
       color: var(--muted);
-      font-size: 18px;
+      font-size: clamp(17px, 3vw, 21px);
       line-height: 1.5;
+      max-width: 48ch;
     }}
     .about {{
-      margin: 28px 0 0;
-      font-size: 17px;
+      margin: 0;
+      font-size: clamp(16px, 2.6vw, 18px);
       line-height: 1.65;
+      max-width: 60ch;
     }}
     .facts {{
       display: grid;
-      gap: 18px;
-      margin-top: 32px;
-      padding-top: 24px;
-      border-top: 1px solid var(--line);
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 14px;
+    }}
+    .fact {{
+      min-width: 0;
+      background: rgba(250, 246, 238, 0.82);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow-soft);
+      padding: 16px;
     }}
     .label {{
       display: block;
-      margin-bottom: 5px;
+      margin-bottom: 7px;
       color: var(--muted);
       font-size: 13px;
-      letter-spacing: 0;
       text-transform: uppercase;
+      font-weight: 700;
     }}
     .value {{
-      font-size: 17px;
+      font-size: 16px;
       line-height: 1.45;
+      overflow-wrap: anywhere;
+    }}
+    @media (max-width: 520px) {{
+      body {{
+        align-items: start;
+        padding: 14px;
+      }}
+      main {{
+        border-radius: 24px;
+        padding: 24px;
+      }}
+      .facts {{
+        grid-template-columns: 1fr;
+      }}
     }}
   </style>
 </head>
 <body>
   <main>
-    {body}
+    <div class="content">
+      {body}
+    </div>
   </main>
 </body>
 </html>"""

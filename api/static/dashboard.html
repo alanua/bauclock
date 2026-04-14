@@ -3,28 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#f6f8fb">
+  <meta name="theme-color" content="#f3efe7">
   <title>BauClock Dashboard</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
-      --bg: #f4f7fb;
-      --surface: #ffffff;
-      --surface-muted: #f7f9fc;
-      --border: #dde5f0;
-      --text: #152033;
-      --text-muted: #66758c;
-      --primary: #3559d6;
-      --primary-soft: #e9eeff;
-      --success: #1f8a58;
-      --success-soft: #e9f7ef;
-      --danger: #c4433b;
-      --danger-soft: #fdeceb;
-      --warning: #c7771a;
-      --warning-soft: #fff3e3;
-      --shadow: 0 16px 48px rgba(21, 32, 51, 0.08);
-      --radius: 22px;
-      --radius-sm: 16px;
+      --bg: #f3efe7;
+      --surface: #fffdf8;
+      --surface-muted: #faf6ee;
+      --border: rgba(58, 76, 67, 0.14);
+      --text: #20342d;
+      --text-muted: #65736c;
+      --primary: #8fd5bc;
+      --primary-strong: #3d7f69;
+      --primary-soft: #e4f6ef;
+      --success: #4f9f7e;
+      --success-soft: #e4f5eb;
+      --danger: #bd6b6b;
+      --danger-soft: #f9e9e7;
+      --warning: #b78b35;
+      --warning-soft: #fbefd5;
+      --shadow: 0 24px 60px rgba(49, 67, 58, 0.11), 0 8px 24px rgba(49, 67, 58, 0.08);
+      --shadow-soft: 0 12px 34px rgba(49, 67, 58, 0.08);
+      --radius: 30px;
+      --radius-sm: 22px;
     }
 
     * {
@@ -39,8 +41,8 @@
 
     body {
       background:
-        radial-gradient(circle at top left, rgba(53, 89, 214, 0.08), transparent 32%),
-        linear-gradient(180deg, #f9fbfd 0%, var(--bg) 100%);
+        radial-gradient(circle at 10% 0%, rgba(143, 213, 188, 0.34), transparent 34%),
+        linear-gradient(180deg, #fffaf2 0%, var(--bg) 100%);
       color: var(--text);
       font-family: "Segoe UI", Arial, sans-serif;
     }
@@ -56,7 +58,7 @@
     }
 
     .shell {
-      width: min(980px, 100%);
+      width: min(1100px, 100%);
       margin: 0 auto;
       display: grid;
       gap: 18px;
@@ -66,8 +68,8 @@
     .state-card,
     .loading-box,
     .worker-card {
-      background: var(--surface);
-      border: 1px solid rgba(21, 32, 51, 0.06);
+      background: rgba(255, 253, 248, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.74);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
     }
@@ -103,11 +105,11 @@
     .brand-mark {
       width: 48px;
       height: 48px;
-      border-radius: 16px;
+      border-radius: 20px;
       display: grid;
       place-items: center;
-      background: linear-gradient(135deg, #3559d6 0%, #2442ac 100%);
-      color: #ffffff;
+      background: linear-gradient(135deg, #a9ddca 0%, #6ab99b 100%);
+      color: #17362d;
       font-size: 16px;
       font-weight: 800;
       letter-spacing: 0.08em;
@@ -120,7 +122,7 @@
 
     .eyebrow {
       margin: 0 0 4px;
-      color: var(--primary);
+      color: var(--primary-strong);
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.08em;
@@ -222,9 +224,9 @@
     }
 
     .role-pill {
-      color: var(--primary);
+      color: var(--primary-strong);
       background: var(--primary-soft);
-      border-color: rgba(53, 89, 214, 0.16);
+      border-color: rgba(61, 127, 105, 0.18);
     }
 
     .updated-at {
@@ -241,16 +243,18 @@
     .kpi-card {
       border-radius: var(--radius-sm);
       padding: 18px;
-      color: #ffffff;
+      color: #17362d;
       box-shadow: none;
     }
 
     .kpi-card.present {
-      background: linear-gradient(135deg, #1f8a58 0%, #187148 100%);
+      background: linear-gradient(135deg, #8fd5bc 0%, #55a984 100%);
+      color: #17362d;
     }
 
     .kpi-card.total {
-      background: linear-gradient(135deg, #3559d6 0%, #2442ac 100%);
+      background: linear-gradient(135deg, #c8d9f0 0%, #89abc9 100%);
+      color: #1d3340;
     }
 
     .kpi-label {
@@ -303,7 +307,7 @@
       width: 16px;
       height: 16px;
       transform: translateY(-50%);
-      border: 2px solid #92a0b3;
+      border: 2px solid #8aa196;
       border-radius: 999px;
       pointer-events: none;
     }
@@ -315,7 +319,7 @@
       top: calc(50% + 6px);
       width: 7px;
       height: 2px;
-      background: #92a0b3;
+      background: #8aa196;
       transform: rotate(45deg);
       border-radius: 999px;
       pointer-events: none;
@@ -333,12 +337,12 @@
     }
 
     .search-field::placeholder {
-      color: #8a97aa;
+      color: #8aa196;
     }
 
     .search-field:focus-visible,
     .button:focus-visible {
-      outline: 3px solid rgba(53, 89, 214, 0.18);
+      outline: 3px solid rgba(143, 213, 188, 0.36);
       outline-offset: 2px;
     }
 
@@ -346,8 +350,9 @@
       display: none;
       overflow: hidden;
       border-radius: var(--radius);
-      border: 1px solid rgba(21, 32, 51, 0.08);
-      background: var(--surface);
+      border: 1px solid rgba(255, 255, 255, 0.74);
+      background: rgba(255, 253, 248, 0.82);
+      box-shadow: var(--shadow-soft);
     }
 
     .workers-table {
@@ -359,13 +364,13 @@
     .workers-table td {
       padding: 14px 16px;
       text-align: left;
-      border-bottom: 1px solid #edf2f7;
+      border-bottom: 1px solid rgba(58, 76, 67, 0.09);
       vertical-align: middle;
     }
 
     .workers-table th {
       color: var(--text-muted);
-      background: var(--surface-muted);
+      background: rgba(250, 246, 238, 0.9);
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.08em;
@@ -385,7 +390,7 @@
       width: 12px;
       height: 12px;
       border-radius: 999px;
-      background: #b3bfce;
+      background: #b7aca0;
       vertical-align: middle;
     }
 
@@ -405,25 +410,25 @@
 
     .status-badge.present {
       background: var(--success-soft);
-      border-color: rgba(31, 138, 88, 0.14);
+      border-color: rgba(79, 159, 126, 0.18);
       color: var(--success);
     }
 
     .status-badge.open {
       background: var(--warning-soft);
-      border-color: rgba(199, 119, 26, 0.18);
+      border-color: rgba(183, 139, 53, 0.18);
       color: var(--warning);
     }
 
     .status-badge.resolved {
       background: var(--success-soft);
-      border-color: rgba(31, 138, 88, 0.14);
+      border-color: rgba(79, 159, 126, 0.18);
       color: var(--success);
     }
 
     .status-badge.rejected {
       background: var(--danger-soft);
-      border-color: rgba(196, 67, 59, 0.18);
+      border-color: rgba(189, 107, 107, 0.18);
       color: var(--danger);
     }
 
@@ -445,6 +450,7 @@
       padding: 16px;
       display: grid;
       gap: 14px;
+      box-shadow: var(--shadow-soft);
     }
 
     .worker-card-head {
@@ -510,7 +516,7 @@
       padding: 28px 20px;
       border-radius: var(--radius-sm);
       border: 1px dashed var(--border);
-      background: var(--surface-muted);
+      background: rgba(250, 246, 238, 0.82);
       text-align: center;
       color: var(--text-muted);
       line-height: 1.55;
@@ -592,8 +598,8 @@
       padding: 22px;
       display: grid;
       gap: 18px;
-      background: var(--surface);
-      border: 1px solid rgba(21, 32, 51, 0.06);
+      background: rgba(255, 253, 248, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.74);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
     }
@@ -606,14 +612,14 @@
     .public-info-block {
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      background: var(--surface-muted);
+      background: rgba(250, 246, 238, 0.82);
       padding: 14px;
       display: grid;
       gap: 6px;
     }
 
     .public-info-label {
-      color: var(--primary);
+      color: var(--primary-strong);
       font-size: 12px;
       font-weight: 800;
       letter-spacing: 0.08em;
@@ -632,13 +638,14 @@
       border-radius: 14px;
       border: 1px solid transparent;
       background: var(--primary);
-      color: #ffffff;
+      color: #17362d;
       cursor: pointer;
       font-weight: 700;
+      box-shadow: var(--shadow-soft);
     }
 
     .button.secondary {
-      background: var(--surface-muted);
+      background: rgba(250, 246, 238, 0.88);
       color: var(--text);
       border-color: var(--border);
     }
@@ -667,7 +674,7 @@
 
     .loading-box {
       height: 86px;
-      background: linear-gradient(90deg, #eef3f8 0%, #ffffff 50%, #eef3f8 100%);
+      background: linear-gradient(90deg, #eee8dd 0%, #fffdf8 50%, #eee8dd 100%);
       background-size: 200% 100%;
       animation: shimmer 1.2s linear infinite;
     }
