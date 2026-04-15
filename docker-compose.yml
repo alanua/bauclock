@@ -78,6 +78,50 @@ services:
         condition: service_healthy
     env_file:
       - .env
+    environment:
+      BOT_ROLE: dedicated_client
+    restart: unless-stopped
+
+  bot-platform:
+    build:
+      context: .
+      dockerfile: ./bot/Dockerfile
+    container_name: bauclock-bot-platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BOT_TOKEN: ${PLATFORM_BOT_TOKEN}
+      BOT_USERNAME: ${PLATFORM_BOT_USERNAME}
+      BOT_ROLE: platform
+      ADMIN_USERNAMES: "[]"
+    restart: unless-stopped
+
+  bot-shared:
+    build:
+      context: .
+      dockerfile: ./bot/Dockerfile
+    container_name: bauclock-bot-shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BOT_TOKEN: ${SHARED_CLIENT_BOT_TOKEN}
+      BOT_USERNAME: ${SHARED_CLIENT_BOT_USERNAME}
+      BOT_ROLE: shared_client
+      ADMIN_USERNAMES: "[]"
     restart: unless-stopped
 
 volumes:

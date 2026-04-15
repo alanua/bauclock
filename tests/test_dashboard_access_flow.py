@@ -89,6 +89,7 @@ from db.models import (
     Site,
     TimeEvent,
     Worker,
+    WorkerAccessRole,
     WorkerType,
 )
 from db.request_service import create_request
@@ -505,8 +506,9 @@ def test_dashboard_miniapp_bootstrap_allows_platform_superadmin_without_worker_m
     run_db_test(run_test)
 
 
-def test_dashboard_miniapp_bootstrap_does_not_auto_link_configured_admin(monkeypatch):
+def test_dashboard_miniapp_bootstrap_links_configured_sek_admin(monkeypatch):
     async def run_test(session):
+        monkeypatch.setattr(settings, "ADMIN_USERNAMES", ["sekmanager"])
         monkeypatch.setattr(settings, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
 
         company = await seed_company(session, "sek-admin")
@@ -521,21 +523,29 @@ def test_dashboard_miniapp_bootstrap_does_not_auto_link_configured_admin(monkeyp
         company.owner_telegram_id_hash = owner.telegram_id_hash
         await session.commit()
 
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
         payload = dashboard_router.MiniAppBootstrapRequest(
             init_data=signed_init_data(345678, username="SEKManager"),
         )
 
-        with pytest.raises(HTTPException) as exc_info:
-            await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
+        bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(
+            payload=payload,
+            db=session,
+        )
 
         created_worker = (
             await session.execute(
                 select(Worker).where(Worker.telegram_id_hash == hash_string("345678"))
             )
-        ).scalar_one_or_none()
+        ).scalar_one()
 
-        assert exc_info.value.status_code == 404
-        assert created_worker is None
+        assert bootstrap["auth_mode"] == "miniapp"
+        assert created_worker.company_id == company.id
+        assert created_worker.can_view_dashboard is True
+        assert created_worker.is_active is True
+        assert created_worker.time_tracking_enabled is False
+        assert created_worker.access_role == WorkerAccessRole.OBJEKTMANAGER.value
+        assert created_worker.created_by == owner.id
 
     run_db_test(run_test)
 

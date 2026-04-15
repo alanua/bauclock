@@ -8,14 +8,19 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     DATABASE_URL: str = "sqlite+aiosqlite:///./bauclock.db"
     BOT_TOKEN: str = ""
-    BOT_USERNAME: str = "SEKbot"
+    BOT_USERNAME: str = "SEKbaubot"
     ENCRYPTION_KEY: str
+    PLATFORM_BOT_TOKEN: str = ""
+    PLATFORM_BOT_USERNAME: str = "gewerbebot"
+    SHARED_CLIENT_BOT_TOKEN: str = ""
+    SHARED_CLIENT_BOT_USERNAME: str = "bauuhrbot"
     OWNER_PHONE: str = "+49176807279824"
     REDIS_URL: str = "redis://redis:6379/0"
     APP_URL: str = "https://sekbot.duckdns.org"
+    ADMIN_USERNAMES: list[str] = []
     PLATFORM_SUPERADMIN_USERNAMES: list[str] = ["AnOleksii"]
 
-    @field_validator("PLATFORM_SUPERADMIN_USERNAMES", mode="before")
+    @field_validator("ADMIN_USERNAMES", "PLATFORM_SUPERADMIN_USERNAMES", mode="before")
     @classmethod
     def parse_username_list(cls, value: Any) -> list[str]:
         if value is None:

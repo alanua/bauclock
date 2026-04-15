@@ -59,6 +59,8 @@ def install_import_stubs() -> None:
         "InlineKeyboardButton",
         "InlineKeyboardMarkup",
         "Message",
+        "KeyboardButton",
+        "ReplyKeyboardMarkup",
         "ReplyKeyboardRemove",
     ):
         setattr(types_module, name, TelegramType)
@@ -108,6 +110,7 @@ class FakeMessage:
 def test_platform_superadmin_start_does_not_enter_company_setup(monkeypatch):
     async def run_test():
         monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "platform")
 
         state = FakeState()
         message = FakeMessage("AnOleksii")
@@ -121,7 +124,7 @@ def test_platform_superadmin_start_does_not_enter_company_setup(monkeypatch):
         )
 
         message.answer.assert_awaited_once()
-        assert "Company Owner" in message.answer.await_args.args[0]
+        assert "Mini App" in message.answer.await_args.args[0]
         assert state.current_state is None
 
     asyncio.run(run_test())

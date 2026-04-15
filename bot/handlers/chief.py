@@ -4,7 +4,7 @@ from html import escape
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,7 +18,7 @@ from bot.redis_cache import redis_client
 from bot.config import settings as bot_config
 from bot.utils.qr import generate_qr_code
 from bot.utils.pdf import generate_site_pdf
-from bot.utils.access import normalize_username
+from bot.utils.access import normalize_phone, normalize_username
 from bot.utils.owner_worker import ensure_company_owner_worker
 from aiogram.types import BufferedInputFile
 
@@ -65,16 +65,31 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         await message.answer(text)
         return
 
-    # Platform superadmins maintain the platform; company setup starts from an owner invite.
+    # Platform superadmins only receive platform entry through the platform bot.
     username = message.from_user.username or ""
     normalized_username = normalize_username(username)
-    if normalized_username in bot_config.PLATFORM_SUPERADMIN_USERNAMES:
+    if bot_config.is_platform_bot and normalized_username in bot_config.PLATFORM_SUPERADMIN_USERNAMES:
         text = (
-            "BauClock Plattformzugang ist aktiv. Die Unternehmensdaten werden vom eingeladenen Company Owner gepflegt."
+            "BauClock Plattformzugang ist aktiv. Oeffnen Sie die Mini App, um den geschuetzten Bereich zu nutzen."
             if locale == "de"
-            else "BauClock platform access is active. Company setup is completed by the invited company owner."
+            else "BauClock platform access is active. Open the Mini App to use the protected area."
         )
         await message.answer(text)
+        return
+
+    # Legacy company setup remains client-bot scoped.
+    if normalized_username in bot_config.ADMIN_USERNAMES:
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="📱 Teilen Sie Ihre Telefonnummer", request_contact=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await message.answer(
+            f"👋 Willkommen, {username}! Admin-Zugang erkannt.\n\n"
+            "Bitte verifizieren Sie sich mit Ihrer Telefonnummer:",
+            reply_markup=kb
+        )
+        await state.set_state(ChiefRegistrationStates.waiting_for_owner_phone)
         return
 
     # Unknown user — show company info only
@@ -90,20 +105,48 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
 
 @router.message(ChiefRegistrationStates.waiting_for_owner_phone, F.contact)
 async def process_owner_phone(message: Message, state: FSMContext, locale: str):
-    await state.clear()
+    username = normalize_username(message.from_user.username)
+    if username not in bot_config.ADMIN_USERNAMES:
+        await state.clear()
+        await message.answer("Keine Berechtigung.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    contact = message.contact
+    if not contact or (contact.user_id and contact.user_id != message.from_user.id):
+        text = (
+            "Bitte teilen Sie Ihre eigene Telefonnummer."
+            if locale == "de"
+            else "Будь ласка, поділіться власним номером телефону."
+        )
+        await message.answer(text)
+        return
+
+    owner_phone = normalize_phone(bot_config.OWNER_PHONE)
+    shared_phone = normalize_phone(contact.phone_number)
+    if not shared_phone or shared_phone != owner_phone:
+        await state.clear()
+        text = (
+            "Verifizierung fehlgeschlagen."
+            if locale == "de"
+            else "Верифікація не пройдена."
+        )
+        await message.answer(text, reply_markup=ReplyKeyboardRemove())
+        return
+
     text = (
-        "Die direkte Unternehmensanlage ist geschlossen. Bitte nutzen Sie den Owner-Einladungslink."
+        "Verifizierung erfolgreich. Bitte geben Sie den Namen Ihres Unternehmens ein:"
         if locale == "de"
-        else "Direct company setup is closed. Please use the owner invite link."
+        else "Верифікація успішна. Будь ласка, надішліть назву вашої компанії:"
     )
     await message.answer(text, reply_markup=ReplyKeyboardRemove())
+    await state.set_state(ChiefRegistrationStates.waiting_for_company_name)
 
 @router.message(ChiefRegistrationStates.waiting_for_owner_phone)
 async def process_owner_phone_invalid(message: Message, locale: str):
     text = (
-        "Die direkte Unternehmensanlage ist geschlossen. Bitte nutzen Sie den Owner-Einladungslink."
+        "Bitte teilen Sie Ihre Telefonnummer ueber den Button."
         if locale == "de"
-        else "Direct company setup is closed. Please use the owner invite link."
+        else "Будь ласка, поділіться номером телефону через кнопку."
     )
     await message.answer(text)
 
