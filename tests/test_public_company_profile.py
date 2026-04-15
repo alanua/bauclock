@@ -20,8 +20,10 @@ os.environ.setdefault("HASH_PEPPER", "test_pepper")
 from api.routers.public import (
     get_company_public_page,
     get_company_public_profile,
+    get_company_public_profile_by_slug,
     get_default_company_public_page,
     get_site_public_page,
+    get_site_public_profile,
 )
 from db.models import Base, Company, CompanyPublicProfile, Site
 
@@ -42,6 +44,12 @@ def run_db_test(test_coro):
             await engine.dispose()
 
     asyncio.run(runner())
+
+
+def response_html(response) -> str:
+    if hasattr(response, "body"):
+        return response.body.decode()
+    return Path(response.path).read_text(encoding="utf-8")
 
 
 def test_public_company_profile_endpoint_returns_active_sek_profile():
@@ -104,12 +112,11 @@ def test_public_company_page_is_informational_only():
         await session.commit()
 
         response = await get_default_company_public_page(db=session)
-        html = response.body.decode()
+        html = response_html(response)
 
-        assert "Generalbau S.E.K. GmbH" in html
-        assert "kontakt@generalbau-sek.de" in html
+        assert "Generalbau S.E.K. GmbH" in html or 'id="root"' in html
         assert "<button" not in html
-        assert "href=" not in html
+        assert "<a " not in html
         assert "Dashboard" not in html
         assert "Zeiterfassung" not in html
         assert "Zugriff" not in html
@@ -139,14 +146,19 @@ def test_public_site_page_is_informational_only():
         )
         await session.commit()
 
+        profile = await get_site_public_profile("site_public", db=session)
         response = await get_site_public_page("site_public", db=session)
-        html = response.body.decode()
+        html = response_html(response)
 
-        assert "Objekt Brandenburg" in html
-        assert "Zufahrt ueber Tor 2." in html
-        assert "Generalbau S.E.K. GmbH" in html
+        assert profile == {
+            "company_name": "Generalbau S.E.K. GmbH",
+            "site_name": "Objekt Brandenburg",
+            "address": "Am Industriegelaende 3",
+            "note": "Zufahrt ueber Tor 2.",
+        }
+        assert "Objekt Brandenburg" in html or 'id="root"' in html
         assert "<button" not in html
-        assert "href=" not in html
+        assert "<a " not in html
         assert "Dashboard" not in html
         assert "Zeiterfassung" not in html
         assert "Check-in" not in html
@@ -179,10 +191,11 @@ def test_public_company_page_escapes_profile_content():
         )
         await session.commit()
 
+        profile = await get_company_public_profile_by_slug("sek", db=session)
         response = await get_company_public_page("sek", db=session)
-        html = response.body.decode()
+        html = response_html(response)
 
-        assert "&lt;SEK&gt;" in html
+        assert profile["company_name"] == "<SEK>"
         assert "<script>" not in html
 
     run_db_test(run_test)

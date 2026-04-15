@@ -77,19 +77,21 @@ from api.services.dashboard_access import (
     get_dashboard_worker,
 )
 from bot.handlers.dashboard import cmd_dashboard
+from db.calendar_service import create_calendar_event
 from db.dashboard_tokens import dashboard_token_key
 from db.models import (
     Base,
     BillingType,
+    CalendarEventType,
     Company,
     CompanyPublicProfile,
     EventType,
     Site,
     TimeEvent,
     Worker,
-    WorkerAccessRole,
     WorkerType,
 )
+from db.request_service import create_request
 from db.security import hash_string
 
 
@@ -358,6 +360,92 @@ def test_dashboard_miniapp_bootstrap_denies_non_dashboard_user():
     run_db_test(run_test)
 
 
+def test_worker_home_miniapp_allows_regular_worker_own_data(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "worker-home")
+        site = await seed_site(session, company.id, "worker-home")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "worker-home-manager",
+            can_view_dashboard=True,
+        )
+        worker = await seed_worker(
+            session,
+            company.id,
+            "worker-home",
+            can_view_dashboard=False,
+            telegram_id=765432,
+        )
+        other_worker = await seed_worker(
+            session,
+            company.id,
+            "worker-home-other",
+            can_view_dashboard=False,
+            telegram_id=876543,
+        )
+        worker.site_id = site.id
+        worker.hourly_rate = 20
+        worker.contract_hours_week = 38
+        today = date.today()
+        timestamp = datetime(today.year, today.month, today.day, 8, 0, tzinfo=timezone.utc)
+        session.add_all(
+            [
+                worker,
+                TimeEvent(
+                    worker_id=worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+                TimeEvent(
+                    worker_id=other_worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+            ]
+        )
+        await session.commit()
+        await create_calendar_event(
+            session,
+            manager_worker=manager,
+            worker_id=worker.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=today,
+            date_to=today,
+            comment="Approved",
+        )
+        await create_request(
+            session,
+            creator_worker=worker,
+            text="Forgot checkout",
+        )
+
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+        response = await dashboard_router.dashboard_worker_home(
+            token=None,
+            telegram_init_data=signed_init_data(765432),
+            db=session,
+        )
+
+        assert response["user"] == {
+            "id": worker.id,
+            "name": "name_enc_worker-home",
+            "role": "WORKER",
+        }
+        assert "workers" not in response
+        assert response["site"]["name"] == "Site worker-home"
+        assert response["status"]["last_event_type"] == EventType.CHECKIN.value
+        assert response["hours"]["contract_hours_week"] == 38
+        assert response["money"]["hourly_rate"] == 20
+        assert response["calendar"]["items"][0]["label"] == "Urlaub"
+        assert response["requests"]["open_count"] == 1
+        assert response["requests"]["items"][0]["text"] == "Forgot checkout"
+
+    run_db_test(run_test)
+
+
 def test_dashboard_miniapp_bootstrap_denies_invalid_init_data():
     async def run_test(session):
         payload = dashboard_router.MiniAppBootstrapRequest(
@@ -417,9 +505,8 @@ def test_dashboard_miniapp_bootstrap_allows_platform_superadmin_without_worker_m
     run_db_test(run_test)
 
 
-def test_dashboard_miniapp_bootstrap_links_configured_sek_admin(monkeypatch):
+def test_dashboard_miniapp_bootstrap_does_not_auto_link_configured_admin(monkeypatch):
     async def run_test(session):
-        monkeypatch.setattr(settings, "ADMIN_USERNAMES", ["sekmanager"])
         monkeypatch.setattr(settings, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
 
         company = await seed_company(session, "sek-admin")
@@ -434,29 +521,21 @@ def test_dashboard_miniapp_bootstrap_links_configured_sek_admin(monkeypatch):
         company.owner_telegram_id_hash = owner.telegram_id_hash
         await session.commit()
 
-        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
         payload = dashboard_router.MiniAppBootstrapRequest(
             init_data=signed_init_data(345678, username="SEKManager"),
         )
 
-        bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(
-            payload=payload,
-            db=session,
-        )
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
 
         created_worker = (
             await session.execute(
                 select(Worker).where(Worker.telegram_id_hash == hash_string("345678"))
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
 
-        assert bootstrap["auth_mode"] == "miniapp"
-        assert created_worker.company_id == company.id
-        assert created_worker.can_view_dashboard is True
-        assert created_worker.is_active is True
-        assert created_worker.time_tracking_enabled is False
-        assert created_worker.access_role == WorkerAccessRole.OBJEKTMANAGER.value
-        assert created_worker.created_by == owner.id
+        assert exc_info.value.status_code == 404
+        assert created_worker is None
 
     run_db_test(run_test)
 

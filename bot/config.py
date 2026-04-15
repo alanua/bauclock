@@ -1,4 +1,3 @@
-import os
 import json
 from typing import Any
 
@@ -14,9 +13,9 @@ class Settings(BaseSettings):
     APP_URL: str = "https://sekbot.duckdns.org"
     BOT_USERNAME: str = "SEKbot"
     OWNER_PHONE: str = "+49176807279824"
-    ADMIN_USERNAMES: list = ["AnOleksii"]
+    PLATFORM_SUPERADMIN_USERNAMES: list[str] = ["AnOleksii"]
 
-    @field_validator("ADMIN_USERNAMES", mode="before")
+    @field_validator("PLATFORM_SUPERADMIN_USERNAMES", mode="before")
     @classmethod
     def parse_admin_usernames(cls, value: Any) -> list[str]:
         if value is None:

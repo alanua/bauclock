@@ -1,5 +1,4 @@
 import json
-import os
 from typing import Any
 
 from pydantic import field_validator
@@ -14,10 +13,9 @@ class Settings(BaseSettings):
     OWNER_PHONE: str = "+49176807279824"
     REDIS_URL: str = "redis://redis:6379/0"
     APP_URL: str = "https://sekbot.duckdns.org"
-    ADMIN_USERNAMES: list[str] = []
     PLATFORM_SUPERADMIN_USERNAMES: list[str] = ["AnOleksii"]
 
-    @field_validator("ADMIN_USERNAMES", "PLATFORM_SUPERADMIN_USERNAMES", mode="before")
+    @field_validator("PLATFORM_SUPERADMIN_USERNAMES", mode="before")
     @classmethod
     def parse_username_list(cls, value: Any) -> list[str]:
         if value is None:

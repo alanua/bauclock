@@ -23,8 +23,9 @@
       --danger-soft: #f9e9e7;
       --warning: #b78b35;
       --warning-soft: #fbefd5;
-      --shadow: 0 24px 60px rgba(49, 67, 58, 0.11), 0 8px 24px rgba(49, 67, 58, 0.08);
-      --shadow-soft: 0 12px 34px rgba(49, 67, 58, 0.08);
+      --shadow: 0 22px 52px rgba(49, 67, 58, 0.10), 0 7px 20px rgba(49, 67, 58, 0.07);
+      --shadow-soft: 0 14px 34px rgba(49, 67, 58, 0.075), 0 3px 10px rgba(49, 67, 58, 0.045);
+      --shadow-chip: 0 10px 22px rgba(49, 67, 58, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.74);
       --radius: 30px;
       --radius-sm: 22px;
     }
@@ -41,7 +42,7 @@
 
     body {
       background:
-        radial-gradient(circle at 10% 0%, rgba(143, 213, 188, 0.34), transparent 34%),
+        radial-gradient(circle at 10% 0%, rgba(143, 213, 188, 0.26), transparent 34%),
         linear-gradient(180deg, #fffaf2 0%, var(--bg) 100%);
       color: var(--text);
       font-family: "Segoe UI", Arial, sans-serif;
@@ -244,7 +245,7 @@
       border-radius: var(--radius-sm);
       padding: 18px;
       color: #17362d;
-      box-shadow: none;
+      box-shadow: var(--shadow-soft);
     }
 
     .kpi-card.present {
@@ -641,7 +642,7 @@
       color: #17362d;
       cursor: pointer;
       font-weight: 700;
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--shadow-chip);
     }
 
     .button.secondary {
@@ -685,6 +686,266 @@
       gap: 12px;
     }
 
+    details.card,
+    details.worker-section {
+      overflow: hidden;
+    }
+
+    details > summary {
+      list-style: none;
+    }
+
+    details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .section-summary {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .section-summary::after {
+      content: "+";
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+      box-shadow: var(--shadow-chip);
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    details[open] > .section-summary::after {
+      content: "-";
+    }
+
+    .worker-home {
+      display: grid;
+      gap: 16px;
+    }
+
+    .worker-hero {
+      display: grid;
+      gap: 18px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .worker-hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(135deg, rgba(143, 213, 188, 0.22), transparent 40%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.62), transparent 32%);
+    }
+
+    .worker-hero > * {
+      position: relative;
+    }
+
+    .worker-hero-row {
+      display: grid;
+      gap: 16px;
+    }
+
+    .worker-name-title {
+      margin-top: 4px;
+      font-size: clamp(28px, 8vw, 42px);
+      line-height: 1.02;
+      letter-spacing: 0;
+      font-weight: 850;
+      overflow-wrap: anywhere;
+    }
+
+    .worker-context {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .worker-status-pill {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: rgba(250, 246, 238, 0.9);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-chip);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .worker-status-pill::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #b7aca0;
+    }
+
+    .worker-status-pill.success::before {
+      background: var(--success);
+    }
+
+    .worker-status-pill.warning::before {
+      background: var(--warning);
+    }
+
+    .worker-status-pill.danger::before {
+      background: var(--danger);
+    }
+
+    .worker-primary-actions {
+      display: grid;
+      gap: 12px;
+    }
+
+    .worker-action-card {
+      min-height: 74px;
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.74);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 253, 248, 0.88);
+      color: var(--text);
+      box-shadow: var(--shadow-soft);
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .worker-action-card.primary {
+      background: linear-gradient(135deg, #a9ddca 0%, #75c5a7 100%);
+      color: #17362d;
+    }
+
+    .worker-action-label {
+      display: block;
+      font-size: 16px;
+      font-weight: 850;
+    }
+
+    .worker-action-detail {
+      display: block;
+      margin-top: 4px;
+      color: rgba(32, 52, 45, 0.72);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .worker-action-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 253, 248, 0.72);
+      box-shadow: var(--shadow-chip);
+      font-weight: 900;
+      flex: 0 0 auto;
+    }
+
+    .worker-block-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .worker-section {
+      background: rgba(255, 253, 248, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.74);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      padding: 0 18px;
+    }
+
+    .worker-section-body {
+      display: grid;
+      gap: 12px;
+      padding: 0 0 18px;
+    }
+
+    .worker-stat-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .worker-stat {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(250, 246, 238, 0.78);
+      box-shadow: var(--shadow-soft);
+      padding: 15px;
+    }
+
+    .worker-stat-label {
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .worker-stat-value {
+      margin-top: 8px;
+      font-size: clamp(24px, 8vw, 34px);
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    .worker-stat-note,
+    .worker-list-note {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .worker-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .worker-list-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(250, 246, 238, 0.78);
+      box-shadow: var(--shadow-soft);
+      padding: 14px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .worker-list-title {
+      font-weight: 850;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .worker-list-meta {
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
     .is-hidden {
       display: none !important;
     }
@@ -716,6 +977,23 @@
         justify-content: space-between;
         align-items: flex-start;
       }
+
+      .worker-hero {
+        padding: 24px;
+      }
+
+      .worker-hero-row {
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 0.44fr);
+        align-items: start;
+      }
+
+      .worker-primary-actions {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .worker-stat-grid {
+        grid-template-columns: 1fr 1fr;
+      }
     }
 
     @media (min-width: 860px) {
@@ -725,6 +1003,14 @@
 
       .mobile-list {
         display: none;
+      }
+
+      .worker-block-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .worker-block-grid .worker-section:first-child {
+        grid-column: span 2;
       }
     }
 
@@ -744,8 +1030,8 @@
             <div class="brand-mark">BC</div>
             <div class="brand-copy">
               <p class="eyebrow">SEK BauClock</p>
-              <h1 class="brand-title">BauClock</h1>
-              <p class="brand-subtitle">
+              <h1 id="brandTitle" class="brand-title">BauClock</h1>
+              <p id="brandSubtitle" class="brand-subtitle">
                 Kompakte Live-Uebersicht fuer Anwesenheit, aktive Mitarbeiter und Vertragsstunden.
               </p>
             </div>
@@ -850,6 +1136,120 @@
         </div>
       </section>
 
+      <div id="workerHomeContent" class="worker-home is-hidden">
+        <section class="card worker-hero">
+          <div class="worker-hero-row">
+            <div>
+              <p class="eyebrow">Privater Bereich</p>
+              <h2 id="workerNameTitle" class="worker-name-title">Mein BauClock</h2>
+              <p id="workerContext" class="worker-context">Persoenlicher Arbeitsbereich.</p>
+            </div>
+            <div>
+              <span id="workerStatusPill" class="worker-status-pill">Status wird geladen</span>
+              <p id="workerLastEvent" class="worker-list-note">Heute noch keine Buchung.</p>
+            </div>
+          </div>
+
+          <div class="worker-primary-actions">
+            <button id="workerScanButton" class="worker-action-card primary" type="button">
+              <span>
+                <span class="worker-action-label">Code scannen</span>
+                <span id="workerScanDetail" class="worker-action-detail">Objekt-QR scannen.</span>
+              </span>
+              <span class="worker-action-mark">QR</span>
+            </button>
+            <button id="workerProblemButton" class="worker-action-card" type="button">
+              <span>
+                <span class="worker-action-label">Problem melden</span>
+                <span class="worker-action-detail">Buchung oder Objekt klaeren.</span>
+              </span>
+              <span class="worker-action-mark">!</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="worker-block-grid">
+          <details id="workerStatusSection" class="worker-section" open>
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Mein Status</span>
+                <span id="workerStatusSummary" class="worker-action-detail">Heute</span>
+              </span>
+            </summary>
+            <div class="worker-section-body">
+              <div class="worker-stat">
+                <p class="worker-stat-label">Aktuell</p>
+                <p id="workerStatusValue" class="worker-stat-value">-</p>
+                <p id="workerStatusDetail" class="worker-stat-note">-</p>
+              </div>
+            </div>
+          </details>
+
+          <details id="workerHoursSection" class="worker-section" open>
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Meine Stunden</span>
+                <span class="worker-action-detail">Heute und Woche</span>
+              </span>
+            </summary>
+            <div class="worker-section-body">
+              <div class="worker-stat-grid">
+                <div class="worker-stat">
+                  <p class="worker-stat-label">Heute</p>
+                  <p id="workerTodayHours" class="worker-stat-value">0 h</p>
+                  <p id="workerBreakHours" class="worker-stat-note">Pause: 0 min</p>
+                </div>
+                <div class="worker-stat">
+                  <p class="worker-stat-label">Vertrag</p>
+                  <p id="workerContractHours" class="worker-stat-value">0 h</p>
+                  <p class="worker-stat-note">pro Woche</p>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details id="workerMoneySection" class="worker-section" open>
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Mein Geld</span>
+                <span class="worker-action-detail">Eigene Werte</span>
+              </span>
+            </summary>
+            <div class="worker-section-body">
+              <div class="worker-stat">
+                <p class="worker-stat-label">Heute geschaetzt</p>
+                <p id="workerTodayMoney" class="worker-stat-value">0,00 EUR</p>
+                <p id="workerMoneyDetail" class="worker-stat-note">Noch kein Stundensatz hinterlegt.</p>
+              </div>
+            </div>
+          </details>
+
+          <details id="workerCalendarSection" class="worker-section">
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Kalender</span>
+                <span id="workerCalendarSummary" class="worker-action-detail">Eigene Eintraege</span>
+              </span>
+            </summary>
+            <div class="worker-section-body">
+              <div id="workerCalendarList" class="worker-list"></div>
+            </div>
+          </details>
+
+          <details id="workerProblemSection" class="worker-section">
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Problem melden</span>
+                <span id="workerRequestSummary" class="worker-action-detail">Eigene Meldungen</span>
+              </span>
+            </summary>
+            <div class="worker-section-body">
+              <div id="workerRequestList" class="worker-list"></div>
+            </div>
+          </details>
+        </section>
+      </div>
+
       <div id="appContent" class="is-hidden">
         <section class="card summary-card">
           <div class="summary-head">
@@ -883,11 +1283,13 @@
           </div>
         </section>
 
-        <section class="card workers-card">
-          <div class="workers-head">
+        <details class="card workers-card" open>
+          <summary class="section-summary">
+            <div class="workers-head">
             <h2 style="font-size: 22px; font-weight: 800;">Arbeiter</h2>
             <p id="workerCountCopy" class="workers-copy">0 Mitarbeiter sichtbar.</p>
-          </div>
+            </div>
+          </summary>
 
           <div class="search-wrap">
             <input
@@ -924,13 +1326,15 @@
           </div>
 
           <div id="mobileWorkers" class="mobile-list is-hidden"></div>
-        </section>
+        </details>
 
-        <section class="card requests-card">
-          <div class="workers-head">
+        <details class="card requests-card" open>
+          <summary class="section-summary">
+            <div class="workers-head">
             <h2 style="font-size: 22px; font-weight: 800;">Anfragen</h2>
             <p id="requestCountCopy" class="workers-copy">0 Eintraege sichtbar.</p>
-          </div>
+            </div>
+          </summary>
 
           <div id="emptyRequestsState" class="empty-state is-hidden">
             <strong style="display: block; margin-bottom: 8px; color: var(--text);">
@@ -958,19 +1362,41 @@
           </div>
 
           <div id="mobileRequests" class="mobile-list is-hidden"></div>
-        </section>
+        </details>
       </div>
     </main>
   </div>
 
   <script>
     const elements = {
+      brandTitle: document.getElementById("brandTitle"),
+      brandSubtitle: document.getElementById("brandSubtitle"),
       sessionPill: document.getElementById("sessionPill"),
       loadingState: document.getElementById("loadingState"),
       missingState: document.getElementById("missingState"),
       accessState: document.getElementById("accessState"),
       networkState: document.getElementById("networkState"),
       publicLandingState: document.getElementById("publicLandingState"),
+      workerHomeContent: document.getElementById("workerHomeContent"),
+      workerNameTitle: document.getElementById("workerNameTitle"),
+      workerContext: document.getElementById("workerContext"),
+      workerStatusPill: document.getElementById("workerStatusPill"),
+      workerLastEvent: document.getElementById("workerLastEvent"),
+      workerScanButton: document.getElementById("workerScanButton"),
+      workerProblemButton: document.getElementById("workerProblemButton"),
+      workerScanDetail: document.getElementById("workerScanDetail"),
+      workerStatusSummary: document.getElementById("workerStatusSummary"),
+      workerStatusValue: document.getElementById("workerStatusValue"),
+      workerStatusDetail: document.getElementById("workerStatusDetail"),
+      workerTodayHours: document.getElementById("workerTodayHours"),
+      workerBreakHours: document.getElementById("workerBreakHours"),
+      workerContractHours: document.getElementById("workerContractHours"),
+      workerTodayMoney: document.getElementById("workerTodayMoney"),
+      workerMoneyDetail: document.getElementById("workerMoneyDetail"),
+      workerCalendarSummary: document.getElementById("workerCalendarSummary"),
+      workerCalendarList: document.getElementById("workerCalendarList"),
+      workerRequestSummary: document.getElementById("workerRequestSummary"),
+      workerRequestList: document.getElementById("workerRequestList"),
       appContent: document.getElementById("appContent"),
       publicCompanyName: document.getElementById("publicCompanyName"),
       publicSubtitle: document.getElementById("publicSubtitle"),
@@ -1013,6 +1439,7 @@
         elements.accessState,
         elements.networkState,
         elements.publicLandingState,
+        elements.workerHomeContent,
         elements.appContent,
       ].forEach((node) => {
         node.classList.toggle("is-hidden", node.id !== activeId);
@@ -1025,6 +1452,11 @@
       if (tone) {
         elements.sessionPill.classList.add(tone);
       }
+    }
+
+    function setShellCopy(title, subtitle) {
+      elements.brandTitle.textContent = title;
+      elements.brandSubtitle.textContent = subtitle;
     }
 
     function getToken() {
@@ -1247,6 +1679,87 @@
         text: String(request.text || ""),
         status: String(request.status || "open"),
       }));
+    }
+
+    function formatDuration(minutes) {
+      const safeMinutes = Math.max(Number(minutes || 0), 0);
+      const hours = Math.floor(safeMinutes / 60);
+      const rest = safeMinutes % 60;
+      if (hours <= 0) {
+        return `${rest} min`;
+      }
+      if (rest <= 0) {
+        return `${hours} h`;
+      }
+      return `${hours} h ${rest} min`;
+    }
+
+    function formatDateRange(fromValue, toValue) {
+      const fromLabel = formatDate(fromValue);
+      const toLabel = formatDate(toValue);
+      if (fromLabel === toLabel || toLabel === "-") {
+        return fromLabel;
+      }
+      return `${fromLabel} - ${toLabel}`;
+    }
+
+    function normaliseWorkerHome(payload) {
+      const user = payload && typeof payload === "object" ? payload.user || {} : {};
+      const company = payload && typeof payload === "object" ? payload.company || {} : {};
+      const site = payload && typeof payload === "object" ? payload.site || {} : {};
+      const status = payload && typeof payload === "object" ? payload.status || {} : {};
+      const hours = payload && typeof payload === "object" ? payload.hours || {} : {};
+      const money = payload && typeof payload === "object" ? payload.money || {} : {};
+      const calendarItems = Array.isArray(payload?.calendar?.items) ? payload.calendar.items : [];
+      const requestItems = Array.isArray(payload?.requests?.items) ? payload.requests.items : [];
+
+      return {
+        user: {
+          name: String(user.name || "Mitarbeiter"),
+          role: String(user.role || "WORKER"),
+        },
+        company: {
+          name: String(company.name || "BauClock"),
+        },
+        site: {
+          name: site.name ? String(site.name) : "",
+          address: site.address ? String(site.address) : "",
+        },
+        status: {
+          key: String(status.key || "not_started"),
+          label: String(status.label || "Noch nicht gestartet"),
+          detail: String(status.detail || "Keine Buchung fuer heute"),
+          tone: String(status.tone || "neutral"),
+          last_event_at: status.last_event_at ? String(status.last_event_at) : "",
+        },
+        hours: {
+          today_minutes: Number(hours.today_minutes || 0),
+          break_minutes: Number(hours.break_minutes || 0),
+          contract_hours_week: Number(hours.contract_hours_week || 0),
+        },
+        money: {
+          billing_type: String(money.billing_type || ""),
+          hourly_rate: Number(money.hourly_rate || 0),
+          today_estimate: Number(money.today_estimate || 0),
+          latest_payment: money.latest_payment || null,
+        },
+        calendar: calendarItems.map((item) => ({
+          label: String(item.label || "Eintrag"),
+          date_from: String(item.date_from || ""),
+          date_to: String(item.date_to || ""),
+          comment: item.comment ? String(item.comment) : "",
+        })),
+        requests: {
+          open_count: Number(payload?.requests?.open_count || 0),
+          items: requestItems.map((item) => ({
+            id: Number(item.id || 0),
+            created_at: String(item.created_at || ""),
+            related_date: item.related_date ? String(item.related_date) : "",
+            text: String(item.text || ""),
+            status: String(item.status || "open"),
+          })),
+        },
+      };
     }
 
     function getFilteredWorkers() {
@@ -1476,9 +1989,101 @@
     }
 
     function renderDashboard(data) {
+      setShellCopy(
+        "Management",
+        "Kompakte Live-Uebersicht fuer Anwesenheit, aktive Mitarbeiter und Vertragsstunden."
+      );
       renderSummary(data);
       renderWorkers();
       renderRequests();
+    }
+
+    function renderWorkerListEmpty(container, title, detail) {
+      container.innerHTML = `
+        <div class="worker-list-item">
+          <div class="worker-list-title">${escapeHtml(title)}</div>
+          <div class="worker-list-meta">${escapeHtml(detail)}</div>
+        </div>
+      `;
+    }
+
+    function renderWorkerHome(data) {
+      setShellCopy("Mein BauClock", data.company.name);
+      elements.workerNameTitle.textContent = data.user.name;
+      elements.workerContext.textContent = data.site.name
+        ? `${data.company.name} - ${data.site.name}`
+        : data.company.name;
+      elements.workerStatusPill.textContent = data.status.label;
+      elements.workerStatusPill.classList.remove("success", "warning", "danger");
+      if (data.status.tone && data.status.tone !== "neutral") {
+        elements.workerStatusPill.classList.add(data.status.tone);
+      }
+      elements.workerLastEvent.textContent = data.status.last_event_at
+        ? `Letzte Buchung: ${formatDateTime(data.status.last_event_at)}`
+        : data.status.detail;
+
+      elements.workerScanDetail.textContent = data.site.name
+        ? `Objekt-QR scannen: ${data.site.name}`
+        : "Objekt-QR scannen.";
+      elements.workerStatusSummary.textContent = data.status.detail;
+      elements.workerStatusValue.textContent = data.status.label;
+      elements.workerStatusDetail.textContent = data.status.last_event_at
+        ? `Letzte Buchung: ${formatDateTime(data.status.last_event_at)}`
+        : data.status.detail;
+      elements.workerTodayHours.textContent = formatDuration(data.hours.today_minutes);
+      elements.workerBreakHours.textContent = `Pause: ${formatDuration(data.hours.break_minutes)}`;
+      elements.workerContractHours.textContent = `${data.hours.contract_hours_week} h`;
+      elements.workerTodayMoney.textContent = formatCurrency(data.money.today_estimate);
+      elements.workerMoneyDetail.textContent =
+        data.money.hourly_rate > 0
+          ? `Stundensatz: ${formatCurrency(data.money.hourly_rate)}`
+          : "Noch kein Stundensatz hinterlegt.";
+
+      elements.workerCalendarSummary.textContent =
+        data.calendar.length === 1
+          ? "1 Eintrag"
+          : `${data.calendar.length} Eintraege`;
+      if (!data.calendar.length) {
+        renderWorkerListEmpty(
+          elements.workerCalendarList,
+          "Keine Kalendereintraege",
+          "Heute und demnaechst ist nichts fuer Sie hinterlegt."
+        );
+      } else {
+        elements.workerCalendarList.innerHTML = data.calendar
+          .map((item) => `
+            <div class="worker-list-item">
+              <div class="worker-list-title">${escapeHtml(item.label)}</div>
+              <div class="worker-list-meta">${escapeHtml(formatDateRange(item.date_from, item.date_to))}</div>
+              ${item.comment ? `<div class="worker-list-meta">${escapeHtml(item.comment)}</div>` : ""}
+            </div>
+          `)
+          .join("");
+      }
+
+      elements.workerRequestSummary.textContent =
+        data.requests.open_count === 1
+          ? "1 offene Meldung"
+          : `${data.requests.open_count} offene Meldungen`;
+      if (!data.requests.items.length) {
+        renderWorkerListEmpty(
+          elements.workerRequestList,
+          "Keine Meldungen",
+          "Neue Probleme koennen im Telegram-Arbeitsfluss gemeldet werden."
+        );
+      } else {
+        elements.workerRequestList.innerHTML = data.requests.items
+          .map((item) => `
+            <div class="worker-list-item">
+              <div class="worker-list-title">${escapeHtml(item.text)}</div>
+              <div class="worker-list-meta">
+                ${escapeHtml(formatRequestStatus(item.status))}
+                ${item.related_date ? ` - ${escapeHtml(formatDate(item.related_date))}` : ""}
+              </div>
+            </div>
+          `)
+          .join("");
+      }
     }
 
     async function loadRequests(auth) {
@@ -1514,8 +2119,8 @@
       }
     }
 
-    async function bootstrapMiniApp() {
-      const initData = await getTelegramInitDataWithRetry();
+    async function bootstrapMiniApp(existingInitData) {
+      const initData = existingInitData || await getTelegramInitDataWithRetry();
       if (!initData) {
         return null;
       }
@@ -1554,7 +2159,19 @@
           token,
         };
       }
-      return bootstrapMiniApp();
+      const initData = await getTelegramInitDataWithRetry();
+      if (!initData) {
+        return null;
+      }
+      const dashboardAuth = await bootstrapMiniApp(initData);
+      if (dashboardAuth) {
+        return dashboardAuth;
+      }
+      return {
+        mode: "miniapp",
+        initData,
+        workerFallback: true,
+      };
     }
 
     async function loadProtectedDashboard(auth) {
@@ -1574,6 +2191,23 @@
       renderDashboard(dashboardData);
       setSessionState("Sitzung aktiv", "success");
       showState("appContent");
+    }
+
+    async function loadWorkerHome(auth) {
+      const response = await fetchJson("/api/dashboard/worker-home", auth);
+
+      if (response.status === 404) {
+        throw new Error("ACCESS_404");
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP_${response.status}`);
+      }
+
+      const workerData = normaliseWorkerHome(await response.json());
+      renderWorkerHome(workerData);
+      setSessionState("Privater Bereich aktiv", "success");
+      showState("workerHomeContent");
     }
 
     async function runRequestAction(requestId, action) {
@@ -1634,9 +2268,23 @@
       setSessionState("Dashboard wird geladen", null);
 
       try {
+        if (auth.workerFallback) {
+          await loadWorkerHome(auth);
+          return;
+        }
         await loadProtectedDashboard(auth);
       } catch (error) {
         if (error.message === "ACCESS_404") {
+          if (auth.mode === "miniapp") {
+            try {
+              await loadWorkerHome(auth);
+              return;
+            } catch (workerError) {
+              if (workerError.message !== "ACCESS_404") {
+                throw workerError;
+              }
+            }
+          }
           if (auth.mode === "token") {
             const miniAppAuth = await bootstrapMiniApp();
             if (miniAppAuth) {
@@ -1659,10 +2307,49 @@
       }
     }
 
+    function extractSiteToken(value) {
+      const match = String(value || "").match(/site_[A-Za-z0-9_-]+/);
+      return match ? match[0] : "";
+    }
+
+    function openWorkerScan() {
+      const webApp = window.Telegram && window.Telegram.WebApp;
+      if (webApp && typeof webApp.showScanQrPopup === "function") {
+        webApp.showScanQrPopup({ text: "Objekt-QR scannen" }, (scanText) => {
+          const siteToken = extractSiteToken(scanText);
+          if (!siteToken) {
+            setSessionState("QR-Code nicht erkannt", "warning");
+            return false;
+          }
+          if (typeof webApp.closeScanQrPopup === "function") {
+            webApp.closeScanQrPopup();
+          }
+          window.location.href = `/s/${encodeURIComponent(siteToken)}`;
+          return true;
+        });
+        return;
+      }
+      setSessionState("Objekt-QR im Telegram-Bot scannen", "warning");
+      if (webApp && typeof webApp.showAlert === "function") {
+        webApp.showAlert("Bitte den Objekt-QR im Telegram-Arbeitsfluss scannen.");
+      }
+    }
+
+    function openWorkerProblemHint() {
+      const webApp = window.Telegram && window.Telegram.WebApp;
+      setSessionState("Problem im Telegram-Bot melden", "warning");
+      if (webApp && typeof webApp.showAlert === "function") {
+        webApp.showAlert("Bitte Problem melden im Telegram-Arbeitsfluss nutzen.");
+      }
+    }
+
     elements.workerSearch.addEventListener("input", (event) => {
       currentSearch = event.target.value || "";
       renderWorkers();
     });
+
+    elements.workerScanButton.addEventListener("click", openWorkerScan);
+    elements.workerProblemButton.addEventListener("click", openWorkerProblemHint);
 
     function bindRequestActions(container) {
       container.addEventListener("click", (event) => {

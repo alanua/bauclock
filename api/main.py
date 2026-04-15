@@ -16,6 +16,7 @@ app.include_router(public.router)
 app.include_router(dashboard.router)
 
 app.mount("/static", StaticFiles(directory="api/static"), name="static")
+app.mount("/public-ui", StaticFiles(directory="api/static/public-ui", check_dir=False), name="public-ui")
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():

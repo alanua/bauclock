@@ -1,7 +1,8 @@
 from html import escape
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,7 @@ from db.database import get_db
 from db.models import Company, CompanyPublicProfile, Site
 
 router = APIRouter()
+PUBLIC_UI_INDEX = Path("api/static/public-ui/index.html")
 
 
 def _serialize_public_profile(profile: CompanyPublicProfile) -> dict[str, str | None]:
@@ -18,6 +20,16 @@ def _serialize_public_profile(profile: CompanyPublicProfile) -> dict[str, str | 
         "about_text": profile.about_text,
         "address": profile.address,
         "email": profile.email,
+    }
+
+
+async def _serialize_public_site_profile(db: AsyncSession, site: Site) -> dict[str, str | None]:
+    company = await db.get(Company, site.company_id)
+    return {
+        "company_name": company.name if company else "Generalbau S.E.K. GmbH",
+        "site_name": site.name,
+        "address": site.address,
+        "note": site.description,
     }
 
 
@@ -40,6 +52,32 @@ async def _get_public_company_profile(
 async def get_company_public_profile(db: AsyncSession = Depends(get_db)):
     profile = await _get_public_company_profile(db, slug="sek")
     return _serialize_public_profile(profile)
+
+
+@router.get("/api/public/company-profile/{slug}")
+async def get_company_public_profile_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
+    profile = await _get_public_company_profile(db, slug=slug)
+    return _serialize_public_profile(profile)
+
+
+async def _get_public_site(db: AsyncSession, qr_token: str) -> Site:
+    stmt = select(Site).where(Site.qr_token == qr_token, Site.is_active.is_(True))
+    site = (await db.execute(stmt)).scalar_one_or_none()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    return site
+
+
+@router.get("/api/public/sites/{qr_token}")
+async def get_site_public_profile(qr_token: str, db: AsyncSession = Depends(get_db)):
+    site = await _get_public_site(db, qr_token)
+    return await _serialize_public_site_profile(db, site)
+
+
+def _public_ui_shell() -> FileResponse | None:
+    if not PUBLIC_UI_INDEX.exists():
+        return None
+    return FileResponse(PUBLIC_UI_INDEX, media_type="text/html")
 
 
 def _fact(label: str, value: str | None) -> str:
@@ -69,8 +107,8 @@ def _public_page(title: str, body: str) -> HTMLResponse:
       --line: rgba(58, 76, 67, 0.12);
       --accent: #a9ddca;
       --accent-strong: #3d7f69;
-      --shadow: 0 24px 60px rgba(49, 67, 58, 0.11), 0 8px 24px rgba(49, 67, 58, 0.08);
-      --shadow-soft: 0 12px 34px rgba(49, 67, 58, 0.08);
+      --shadow: 0 22px 52px rgba(49, 67, 58, 0.10), 0 7px 20px rgba(49, 67, 58, 0.07);
+      --shadow-soft: 0 14px 34px rgba(49, 67, 58, 0.075), 0 3px 10px rgba(49, 67, 58, 0.045);
     }}
     * {{
       box-sizing: border-box;
@@ -84,7 +122,7 @@ def _public_page(title: str, body: str) -> HTMLResponse:
       font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at 12% 0%, rgba(169, 221, 202, 0.33), transparent 34%),
+        radial-gradient(circle at 12% 0%, rgba(169, 221, 202, 0.26), transparent 34%),
         linear-gradient(180deg, #fffaf2 0%, var(--bg) 100%);
       display: grid;
       place-items: center;
@@ -106,8 +144,8 @@ def _public_page(title: str, body: str) -> HTMLResponse:
       inset: 0;
       pointer-events: none;
       background:
-        linear-gradient(135deg, rgba(169, 221, 202, 0.22), transparent 36%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.74), transparent 28%);
+        linear-gradient(135deg, rgba(169, 221, 202, 0.18), transparent 36%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.66), transparent 28%);
     }}
     .content {{
       position: relative;
@@ -206,6 +244,10 @@ async def get_default_company_public_page(db: AsyncSession = Depends(get_db)):
 @router.get("/c/{slug}", response_class=HTMLResponse)
 async def get_company_public_page(slug: str, db: AsyncSession = Depends(get_db)):
     profile = await _get_public_company_profile(db, slug=slug)
+    shell = _public_ui_shell()
+    if shell:
+        return shell
+
     facts = "\n".join(
         item
         for item in [
@@ -228,10 +270,10 @@ async def get_company_public_page(slug: str, db: AsyncSession = Depends(get_db))
 
 @router.get("/s/{qr_token}", response_class=HTMLResponse)
 async def get_site_public_page(qr_token: str, db: AsyncSession = Depends(get_db)):
-    stmt = select(Site).where(Site.qr_token == qr_token, Site.is_active.is_(True))
-    site = (await db.execute(stmt)).scalar_one_or_none()
-    if not site:
-        raise HTTPException(status_code=404, detail="Site not found")
+    site = await _get_public_site(db, qr_token)
+    shell = _public_ui_shell()
+    if shell:
+        return shell
 
     company = await db.get(Company, site.company_id)
     company_name = company.name if company else "Generalbau S.E.K. GmbH"

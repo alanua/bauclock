@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request as FastAPIRequest
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.redis_client import redis_client
@@ -17,14 +17,18 @@ from api.services.dashboard_access import (
     DashboardAccessError,
     get_company_present_worker_ids,
     get_dashboard_context,
+    get_dashboard_worker,
     get_dashboard_role,
     get_miniapp_dashboard_context,
+    get_miniapp_private_worker,
 )
+from db.calendar_service import list_worker_calendar_events
 from db.database import get_db
-from db.models import Request, Worker
+from db.models import CalendarEvent, Company, EventType, Payment, Request, Site, TimeEvent, Worker
 from db.request_service import (
     RequestAccessError,
     list_company_requests,
+    list_worker_requests,
     reject_request,
     resolve_request,
 )
@@ -32,7 +36,7 @@ from db.security import decrypt_string
 
 
 router = APIRouter()
-DASHBOARD_SHELL_VERSION = "20260412-auto-miniapp"
+DASHBOARD_SHELL_VERSION = "20260415-worker-home"
 
 
 class MiniAppBootstrapRequest(BaseModel):
@@ -93,6 +97,226 @@ async def _serialize_company_requests(
         }
         for request in requests
     ]
+
+
+def _event_type_value(event_type) -> str:
+    if hasattr(event_type, "value"):
+        return str(event_type.value)
+    return str(event_type or "")
+
+
+def _safe_minutes_between(start: datetime | None, end: datetime | None) -> int:
+    if not start or not end:
+        return 0
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return max(int((end - start).total_seconds() // 60), 0)
+
+
+def _calculate_day_minutes(events: list[TimeEvent], now: datetime) -> dict[str, int]:
+    work_minutes = 0
+    break_minutes = 0
+    active_start: datetime | None = None
+    pause_start: datetime | None = None
+
+    for event in events:
+        event_type = _event_type_value(event.event_type)
+        timestamp = event.timestamp
+        if event_type == EventType.CHECKIN.value:
+            active_start = timestamp
+            pause_start = None
+        elif event_type == EventType.PAUSE_START.value:
+            work_minutes += _safe_minutes_between(active_start, timestamp)
+            active_start = None
+            pause_start = timestamp
+        elif event_type == EventType.PAUSE_END.value:
+            break_minutes += _safe_minutes_between(pause_start, timestamp)
+            pause_start = None
+            active_start = timestamp
+        elif event_type == EventType.CHECKOUT.value:
+            work_minutes += _safe_minutes_between(active_start, timestamp)
+            break_minutes += _safe_minutes_between(pause_start, timestamp)
+            active_start = None
+            pause_start = None
+
+    work_minutes += _safe_minutes_between(active_start, now)
+    break_minutes += _safe_minutes_between(pause_start, now)
+    return {
+        "work_minutes": work_minutes,
+        "break_minutes": break_minutes,
+    }
+
+
+def _worker_status(events: list[TimeEvent]) -> dict[str, str | None]:
+    if not events:
+        return {
+            "key": "not_started",
+            "label": "Noch nicht gestartet",
+            "detail": "Keine Buchung fuer heute",
+            "tone": "neutral",
+            "last_event_type": None,
+            "last_event_at": None,
+        }
+
+    last_event = events[-1]
+    last_event_type = _event_type_value(last_event.event_type)
+    status_map = {
+        EventType.CHECKIN.value: ("working", "Am Arbeiten", "Seit der letzten Ankunft", "success"),
+        EventType.PAUSE_START.value: ("paused", "In Pause", "Pause laeuft", "warning"),
+        EventType.PAUSE_END.value: ("working", "Am Arbeiten", "Seit dem Pausenende", "success"),
+        EventType.CHECKOUT.value: ("done", "Feierabend", "Heute abgeschlossen", "neutral"),
+    }
+    key, label, detail, tone = status_map.get(
+        last_event_type,
+        ("unknown", "Status offen", "Letzte Buchung wird geprueft", "neutral"),
+    )
+    return {
+        "key": key,
+        "label": label,
+        "detail": detail,
+        "tone": tone,
+        "last_event_type": last_event_type,
+        "last_event_at": _serialize_datetime(last_event.timestamp),
+    }
+
+
+async def _get_worker_today_events(
+    db: AsyncSession,
+    *,
+    worker_id: int,
+    today: date,
+) -> list[TimeEvent]:
+    result = await db.execute(
+        select(TimeEvent)
+        .where(
+            TimeEvent.worker_id == worker_id,
+            func.date(TimeEvent.timestamp) == today,
+        )
+        .order_by(TimeEvent.timestamp.asc(), TimeEvent.id.asc())
+    )
+    return list(result.scalars().all())
+
+
+def _serialize_worker_calendar_event(event: CalendarEvent) -> dict[str, str | None]:
+    labels = {
+        "vacation": "Urlaub",
+        "sick_leave": "Krankmeldung",
+        "public_holiday": "Feiertag",
+        "non_working_day": "Freier Tag",
+    }
+    return {
+        "type": event.event_type,
+        "label": labels.get(event.event_type, event.event_type),
+        "date_from": event.date_from.isoformat(),
+        "date_to": event.date_to.isoformat(),
+        "comment": event.comment,
+    }
+
+
+def _serialize_worker_request(request: Request) -> dict[str, str | int | None]:
+    return {
+        "id": request.id,
+        "created_at": _serialize_datetime(request.created_at),
+        "related_date": request.related_date.isoformat() if request.related_date else None,
+        "text": request.text,
+        "status": request.status,
+    }
+
+
+async def _get_latest_worker_payment(
+    db: AsyncSession,
+    *,
+    worker_id: int,
+) -> Payment | None:
+    result = await db.execute(
+        select(Payment)
+        .where(Payment.worker_id == worker_id)
+        .order_by(Payment.period_end.desc(), Payment.id.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _get_authenticated_worker_home_worker(
+    db: AsyncSession,
+    *,
+    token: str | None,
+    telegram_init_data: str | None,
+) -> Worker:
+    if (token or "").strip():
+        return await get_dashboard_worker(token, db, redis_client)
+    return await get_miniapp_private_worker(telegram_init_data, db)
+
+
+async def _serialize_worker_home(
+    db: AsyncSession,
+    *,
+    worker: Worker,
+) -> dict[str, object]:
+    today = date.today()
+    now = datetime.now(timezone.utc)
+    company = await db.get(Company, worker.company_id)
+    site = await db.get(Site, worker.site_id) if worker.site_id else None
+    today_events = await _get_worker_today_events(db, worker_id=worker.id, today=today)
+    day_minutes = _calculate_day_minutes(today_events, now)
+    calendar_events = sorted(
+        [
+            event
+            for event in await list_worker_calendar_events(db, worker=worker)
+            if event.date_to >= today
+        ],
+        key=lambda event: (event.date_from, event.id),
+    )[:3]
+    worker_requests_all = list(await list_worker_requests(db, worker=worker))
+    worker_requests = worker_requests_all[:3]
+    open_request_count = sum(1 for request in worker_requests_all if request.status == "open")
+    latest_payment = await _get_latest_worker_payment(db, worker_id=worker.id)
+    hourly_rate = float(worker.hourly_rate or 0)
+    today_amount = round((day_minutes["work_minutes"] / 60) * hourly_rate, 2)
+
+    return {
+        "user": {
+            "id": worker.id,
+            "name": decrypt_string(worker.full_name_enc),
+            "role": "WORKER",
+        },
+        "company": {
+            "name": company.name if company else "BauClock",
+        },
+        "site": {
+            "name": site.name if site else None,
+            "address": site.address if site else None,
+        },
+        "status": _worker_status(today_events),
+        "hours": {
+            "today_minutes": day_minutes["work_minutes"],
+            "break_minutes": day_minutes["break_minutes"],
+            "contract_hours_week": int(worker.contract_hours_week or 0),
+        },
+        "money": {
+            "billing_type": _event_type_value(worker.billing_type),
+            "hourly_rate": hourly_rate,
+            "today_estimate": today_amount,
+            "latest_payment": {
+                "amount_paid": float(latest_payment.amount_paid),
+                "hours_paid": float(latest_payment.hours_paid),
+                "status": _event_type_value(latest_payment.status),
+                "period_start": _serialize_datetime(latest_payment.period_start),
+                "period_end": _serialize_datetime(latest_payment.period_end),
+            }
+            if latest_payment
+            else None,
+        },
+        "calendar": {
+            "items": [_serialize_worker_calendar_event(event) for event in calendar_events],
+        },
+        "requests": {
+            "open_count": open_request_count,
+            "items": [_serialize_worker_request(request) for request in worker_requests],
+        },
+    }
 
 
 def _dashboard_context_user(context: DashboardContext) -> dict[str, str]:
@@ -206,6 +430,24 @@ async def dashboard_data(
             for company_worker in workers
         ],
     }
+
+
+@router.get("/api/dashboard/worker-home")
+async def dashboard_worker_home(
+    token: str | None = Query(default=None),
+    telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        worker = await _get_authenticated_worker_home_worker(
+            db,
+            token=token,
+            telegram_init_data=telegram_init_data,
+        )
+    except DashboardAccessError as exc:
+        raise _dashboard_access_denied() from exc
+
+    return await _serialize_worker_home(db, worker=worker)
 
 
 @router.get("/api/dashboard/requests")
