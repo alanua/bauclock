@@ -13,6 +13,7 @@ class PlatformOwnerInviteStates(StatesGroup):
 class OwnerAlphaOnboardingStates(StatesGroup):
     waiting_for_owner_name = State()
     waiting_for_company_name = State()
+    waiting_for_company_legal_form = State()
     waiting_for_company_address = State()
     waiting_for_company_email = State()
 

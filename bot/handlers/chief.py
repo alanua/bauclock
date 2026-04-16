@@ -22,7 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from access.legacy_policy import can_access_dashboard
 from bot.config import settings as bot_config
 from bot.keyboards.chief_kb import (
+    LEGAL_FORM_OPTIONS,
     get_cancel_kb,
+    get_company_legal_form_kb,
     get_objektmanager_flag_kb,
     get_site_role_kb,
     get_worker_type_kb,
@@ -80,6 +82,11 @@ def _is_shared_client_bot() -> bool:
 
 def _skip_value(text: str | None) -> bool:
     return (text or "").strip().lower() in {"/skip", "skip", "-"}
+
+
+def _legal_form_label(value: str | None) -> str:
+    labels = dict(LEGAL_FORM_OPTIONS)
+    return labels.get(str(value or ""), "Sonstiges")
 
 
 def _slug_base(company_name: str) -> str:
@@ -387,10 +394,39 @@ async def process_owner_alpha_company_name(message: Message, state: FSMContext, 
 
     await state.update_data(company_name=company_name)
     await message.answer(
+        "Welche Rechtsform hat die Firma?"
+        if locale == "de"
+        else "What is the company's legal form?",
+        reply_markup=get_company_legal_form_kb(locale),
+    )
+    await state.set_state(OwnerAlphaOnboardingStates.waiting_for_company_legal_form)
+
+
+@router.callback_query(OwnerAlphaOnboardingStates.waiting_for_company_legal_form, F.data.startswith("legal_form_"))
+async def process_owner_alpha_company_legal_form(callback: CallbackQuery, state: FSMContext, locale: str):
+    legal_form = callback.data.removeprefix("legal_form_")
+    allowed_values = {value for value, _label in LEGAL_FORM_OPTIONS}
+    if legal_form not in allowed_values:
+        await callback.answer()
+        await callback.message.answer(
+            "Bitte waehlen Sie eine Rechtsform aus der Liste."
+            if locale == "de"
+            else "Please choose a legal form from the list."
+        )
+        return
+
+    await state.update_data(company_legal_form=legal_form)
+    await callback.message.edit_text(
+        f"Rechtsform: {_legal_form_label(legal_form)}"
+        if locale == "de"
+        else f"Legal form: {_legal_form_label(legal_form)}"
+    )
+    await callback.message.answer(
         "Bitte senden Sie die Firmenadresse fuer die oeffentliche Seite (oder /skip)."
         if locale == "de"
         else "Please send the company address for the public page (or /skip)."
     )
+    await callback.answer()
     await state.set_state(OwnerAlphaOnboardingStates.waiting_for_company_address)
 
 
@@ -420,6 +456,8 @@ async def process_owner_alpha_company_email(
     data = await state.get_data()
     owner_name = (data.get("owner_name") or "").strip()
     company_name = (data.get("company_name") or "").strip()
+    company_legal_form = data.get("company_legal_form")
+    legal_form_label = _legal_form_label(company_legal_form)
     company_address = (data.get("company_address") or "Adresse folgt").strip()
     company_email = None if _skip_value(message.text) else (message.text or "").strip() or None
     token = data.get("owner_invite_token")
@@ -431,6 +469,16 @@ async def process_owner_alpha_company_email(
             if locale == "de"
             else "Onboarding could not be completed. Please open the invite link again."
         )
+        return
+
+    if not company_legal_form:
+        await message.answer(
+            "Bitte waehlen Sie zuerst die Rechtsform der Firma."
+            if locale == "de"
+            else "Please choose the company legal form first.",
+            reply_markup=get_company_legal_form_kb(locale),
+        )
+        await state.set_state(OwnerAlphaOnboardingStates.waiting_for_company_legal_form)
         return
 
     tg_id_str = str(message.from_user.id)
@@ -465,8 +513,8 @@ async def process_owner_alpha_company_email(
         company_id=company.id,
         slug=profile_slug,
         company_name=company_name,
-        subtitle="Bauunternehmen",
-        about_text=f"{company_name} nutzt BauClock fuer Zeiterfassung und Baustellenkoordination.",
+        subtitle=f"Bauunternehmen - {legal_form_label}",
+        about_text=f"{company_name} ({legal_form_label}) nutzt BauClock fuer Zeiterfassung und Baustellenkoordination.",
         address=company_address,
         email=company_email,
         is_active=True,

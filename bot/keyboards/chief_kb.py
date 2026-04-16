@@ -3,6 +3,16 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from db.models import WorkerType
 
 
+LEGAL_FORM_OPTIONS = [
+    ("gewerbe", "Gewerbe"),
+    ("gmbh", "GmbH"),
+    ("ug", "UG"),
+    ("gbr", "GbR"),
+    ("einzelunternehmen", "Einzelunternehmen"),
+    ("sonstiges", "Sonstiges"),
+]
+
+
 def get_worker_type_kb(locale: str) -> InlineKeyboardMarkup:
     keys = [
         [InlineKeyboardButton(text="Festangestellt", callback_data=f"wtype_{WorkerType.FESTANGESTELLT.value}")],
@@ -37,4 +47,11 @@ def get_site_role_kb(locale: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=role_text, callback_data="site_role_general_contractor")],
         [InlineKeyboardButton(text=cancel_text, callback_data="cancel_action")],
+    ])
+
+
+def get_company_legal_form_kb(locale: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data=f"legal_form_{value}")]
+        for value, label in LEGAL_FORM_OPTIONS
     ])

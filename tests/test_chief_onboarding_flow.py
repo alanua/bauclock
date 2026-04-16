@@ -272,6 +272,51 @@ def test_owner_invite_acceptance_stays_on_shared_client_bot(monkeypatch):
     asyncio.run(run_test())
 
 
+def test_owner_company_name_requires_legal_form_choice():
+    async def run_test():
+        state = FakeState()
+        await state.update_data(owner_invite_data={"company_name": "Alpha Bau"})
+        message = FakeMessage("owner")
+        message.text = "/skip"
+
+        await chief_handler.process_owner_alpha_company_name(
+            message=message,
+            state=state,
+            locale="de",
+        )
+
+        assert state.data["company_name"] == "Alpha Bau"
+        assert state.current_state == chief_handler.OwnerAlphaOnboardingStates.waiting_for_company_legal_form
+        assert "Rechtsform" in message.answer.await_args.args[0]
+        assert message.answer.await_args.kwargs["reply_markup"] is not None
+
+    asyncio.run(run_test())
+
+
+def test_owner_legal_form_choice_moves_to_company_address():
+    async def run_test():
+        state = FakeState()
+        callback = SimpleNamespace(
+            data="legal_form_gmbh",
+            message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+
+        await chief_handler.process_owner_alpha_company_legal_form(
+            callback=callback,
+            state=state,
+            locale="de",
+        )
+
+        assert state.data["company_legal_form"] == "gmbh"
+        assert state.current_state == chief_handler.OwnerAlphaOnboardingStates.waiting_for_company_address
+        callback.message.edit_text.assert_awaited_once()
+        callback.message.answer.assert_awaited_once()
+        assert "Firmenadresse" in callback.message.answer.await_args.args[0]
+
+    asyncio.run(run_test())
+
+
 def test_owner_alpha_onboarding_creates_owner_company_and_public_profile(monkeypatch):
     async def run_test(session):
         redis_stub = SimpleNamespace(delete=AsyncMock())
@@ -281,6 +326,7 @@ def test_owner_alpha_onboarding_creates_owner_company_and_public_profile(monkeyp
             owner_invite_token="owner_inv_alpha",
             owner_name="Alpha Owner",
             company_name="Alpha Bau",
+            company_legal_form="gmbh",
             company_address="Alpha Strasse 1",
         )
         message = FakeMessage("owner")
@@ -306,6 +352,8 @@ def test_owner_alpha_onboarding_creates_owner_company_and_public_profile(monkeyp
         assert profile.company_id == company.id
         assert profile.company_name == "Alpha Bau"
         assert profile.slug == "alpha-bau"
+        assert profile.subtitle == "Bauunternehmen - GmbH"
+        assert "(GmbH)" in profile.about_text
         redis_stub.delete.assert_awaited_once_with("owner_inv_alpha")
         assert "Owner-Zugang ist aktiv" in message.answer.await_args.args[0]
 
