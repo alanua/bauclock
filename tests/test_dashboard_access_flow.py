@@ -86,6 +86,8 @@ from db.models import (
     Company,
     CompanyPublicProfile,
     EventType,
+    Payment,
+    PaymentStatus,
     Request,
     RequestStatus,
     Site,
@@ -192,6 +194,7 @@ async def seed_worker(
     can_view_dashboard: bool = True,
     time_tracking_enabled: bool = True,
     telegram_id: int | None = None,
+    access_role: WorkerAccessRole = WorkerAccessRole.WORKER,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
@@ -201,6 +204,7 @@ async def seed_worker(
         worker_type=WorkerType.FESTANGESTELLT,
         billing_type=BillingType.HOURLY,
         can_view_dashboard=can_view_dashboard,
+        access_role=access_role.value,
         time_tracking_enabled=time_tracking_enabled,
         is_active=is_active,
     )
@@ -359,6 +363,104 @@ def test_dashboard_miniapp_bootstrap_denies_non_dashboard_user():
             await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
 
         assert exc_info.value.status_code == 404
+
+    run_db_test(run_test)
+
+
+def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "management-home")
+        site = await seed_site(session, company.id, "management-home")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "management-home-manager",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            telegram_id=123457,
+            access_role=WorkerAccessRole.COMPANY_OWNER,
+        )
+        working = await seed_worker(session, company.id, "management-home-working")
+        on_break = await seed_worker(session, company.id, "management-home-break")
+        not_started = await seed_worker(session, company.id, "management-home-waiting")
+        subcontractor = await seed_worker(session, company.id, "management-home-sub")
+        subcontractor.worker_type = WorkerType.SUBUNTERNEHMER
+        today = date.today()
+        timestamp = datetime(today.year, today.month, today.day, 8, 0, tzinfo=timezone.utc)
+        session.add_all(
+            [
+                subcontractor,
+                TimeEvent(
+                    worker_id=working.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+                TimeEvent(
+                    worker_id=on_break.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+                TimeEvent(
+                    worker_id=on_break.id,
+                    site_id=site.id,
+                    event_type=EventType.PAUSE_START,
+                    timestamp=timestamp.replace(hour=10),
+                ),
+                Payment(
+                    worker_id=working.id,
+                    period_start=timestamp,
+                    period_end=timestamp.replace(hour=17),
+                    hours_paid=2.5,
+                    amount_paid=125,
+                    status=PaymentStatus.PENDING,
+                    payment_type="OVERTIME",
+                ),
+                Payment(
+                    worker_id=on_break.id,
+                    period_start=timestamp,
+                    period_end=timestamp.replace(hour=17),
+                    hours_paid=7,
+                    amount_paid=350,
+                    status=PaymentStatus.CONFIRMED,
+                    payment_type="CONTRACT",
+                ),
+            ]
+        )
+        await session.commit()
+        await create_request(session, creator_worker=not_started, text="Missing hours")
+        await create_calendar_event(
+            session,
+            manager_worker=manager,
+            worker_id=working.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=today,
+            date_to=today,
+        )
+
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+        response = await dashboard_router.dashboard_data(
+            token=None,
+            telegram_init_data=signed_init_data(123457),
+            db=session,
+        )
+        home = response["management_home"]
+
+        assert response["user"]["access_role"] == WorkerAccessRole.COMPANY_OWNER.value
+        assert home["operations"] == {
+            "working": 1,
+            "on_break": 1,
+            "not_checked_in": 2,
+            "unclosed_days": 2,
+        }
+        assert home["requests"]["open"] == 1
+        assert home["finance"]["pending_amount"] == 125
+        assert home["finance"]["confirmed_amount"] == 350
+        assert home["finance"]["pending_overtime_hours"] == 2.5
+        assert home["partners"]["subcontractor_workers"] == 1
+        assert home["quick_entries"]["sites"] == 1
+        assert home["quick_entries"]["calendar"] == 1
 
     run_db_test(run_test)
 

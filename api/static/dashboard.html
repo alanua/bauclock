@@ -730,6 +730,152 @@
       content: "-";
     }
 
+    .management-home {
+      display: grid;
+      gap: 14px;
+      width: min(1040px, 100%);
+      margin: 0 auto;
+    }
+
+    .management-hero,
+    .management-section {
+      background: rgba(255, 253, 248, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.76);
+      border-radius: var(--radius);
+      box-shadow: var(--worker-shadow-panel);
+    }
+
+    .management-hero {
+      display: grid;
+      gap: 18px;
+      padding: 20px;
+    }
+
+    .management-kpi-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .management-kpi-card,
+    .management-mini-card,
+    .management-entry-card {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(250, 246, 238, 0.78);
+      box-shadow: var(--worker-shadow-card);
+      padding: 15px;
+    }
+
+    .management-kpi-card.primary {
+      background: linear-gradient(135deg, #a9ddca 0%, #75c5a7 100%);
+      color: #17362d;
+      border-color: rgba(255, 255, 255, 0.76);
+    }
+
+    .management-kpi-label,
+    .management-mini-label,
+    .management-entry-label {
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .management-kpi-card.primary .management-kpi-label {
+      color: rgba(23, 54, 45, 0.72);
+    }
+
+    .management-kpi-value {
+      margin-top: 8px;
+      font-size: clamp(26px, 8vw, 40px);
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    .management-kpi-note,
+    .management-mini-note,
+    .management-entry-note {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .management-section-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .management-section {
+      overflow: hidden;
+      padding: 0 18px;
+    }
+
+    .management-section:not([open]) {
+      box-shadow: var(--worker-shadow-card);
+    }
+
+    .management-section-body {
+      display: grid;
+      gap: 12px;
+      padding: 0 0 18px;
+    }
+
+    .management-card-grid,
+    .management-entry-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .management-entry-card {
+      width: 100%;
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+    }
+
+    .management-entry-card:focus-visible {
+      outline: 3px solid rgba(61, 127, 105, 0.22);
+      outline-offset: 3px;
+    }
+
+    .management-entry-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+      box-shadow: var(--worker-shadow-chip);
+      font-weight: 900;
+      flex: 0 0 auto;
+    }
+
+    .management-entry-state {
+      padding: 12px 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(61, 127, 105, 0.14);
+      background: rgba(228, 246, 239, 0.66);
+      box-shadow: var(--worker-shadow-card);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .is-role-hidden {
+      display: none !important;
+    }
+
     .worker-home {
       display: grid;
       gap: 14px;
@@ -1184,6 +1330,19 @@
         grid-template-columns: 1fr 1fr;
       }
 
+      .management-hero {
+        padding: 24px;
+      }
+
+      .management-kpi-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .management-card-grid,
+      .management-entry-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .worker-problem-actions {
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
@@ -1205,6 +1364,15 @@
 
       .worker-block-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .management-section-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .management-section-wide,
+      #managementEntrySection {
+        grid-column: 1 / -1;
       }
 
       #workerProblemSection {
@@ -1492,16 +1660,16 @@
         </section>
       </div>
 
-      <div id="appContent" class="is-hidden">
-        <section class="card summary-card">
+      <div id="appContent" class="management-home is-hidden">
+        <section class="management-hero">
           <div class="summary-head">
             <div>
-              <p class="eyebrow">Heute</p>
+              <p class="eyebrow">Management</p>
               <h2 id="summaryHeadline" class="brand-title" style="font-size: clamp(26px, 5vw, 34px);">
-                Mitarbeiteruebersicht
+                Management Home
               </h2>
               <p id="summaryCopy" class="summary-copy">
-                Live-Stand fuer die aktuelle Anwesenheit.
+                Ruhiger Live-Stand fuer Betrieb, Meldungen und Abrechnung.
               </p>
             </div>
             <div class="summary-meta">
@@ -1510,22 +1678,174 @@
             </div>
           </div>
 
-          <div class="kpi-grid">
-            <article class="kpi-card present">
-              <p class="kpi-label">Heute anwesend</p>
-              <p id="presentCount" class="kpi-value">0</p>
-              <p id="presentHint" class="kpi-hint">Keine aktiven Mitarbeiter.</p>
+          <div class="management-kpi-grid">
+            <article class="management-kpi-card primary" data-role-section="operations">
+              <p class="management-kpi-label">Aktuell am Arbeiten</p>
+              <p id="managementWorkingCount" class="management-kpi-value">0</p>
+              <p id="managementWorkingNote" class="management-kpi-note">Keine laufende Arbeitszeit.</p>
             </article>
 
-            <article class="kpi-card total">
-              <p class="kpi-label">Gesamt</p>
-              <p id="totalCount" class="kpi-value">0</p>
-              <p id="totalHint" class="kpi-hint">Noch keine Mitarbeiterdaten verfuegbar.</p>
+            <article class="management-kpi-card" data-role-section="operations">
+              <p class="management-kpi-label">In Pause</p>
+              <p id="managementBreakCount" class="management-kpi-value">0</p>
+              <p id="managementBreakNote" class="management-kpi-note">Keine aktive Pause.</p>
+            </article>
+
+            <article class="management-kpi-card" data-role-section="operations">
+              <p class="management-kpi-label">Nicht gestartet</p>
+              <p id="managementNotCheckedInCount" class="management-kpi-value">0</p>
+              <p id="managementNotCheckedInNote" class="management-kpi-note">Heute ohne Buchung.</p>
+            </article>
+
+            <article class="management-kpi-card" data-role-section="operations">
+              <p class="management-kpi-label">Unclosed Days</p>
+              <p id="managementUnclosedCount" class="management-kpi-value">0</p>
+              <p id="managementUnclosedNote" class="management-kpi-note">Heute noch offen.</p>
+            </article>
+
+            <article class="management-kpi-card" data-role-section="requests">
+              <p class="management-kpi-label">Offene Meldungen</p>
+              <p id="managementOpenRequestsCount" class="management-kpi-value">0</p>
+              <p id="managementOpenRequestsNote" class="management-kpi-note">Keine offenen Meldungen.</p>
+            </article>
+
+            <article class="management-kpi-card" data-role-section="finance">
+              <p class="management-kpi-label">Cash-Flow Monat</p>
+              <p id="managementCashflowValue" class="management-kpi-value">0,00 EUR</p>
+              <p id="managementCashflowNote" class="management-kpi-note">Aus Zahlungseintraegen.</p>
             </article>
           </div>
         </section>
 
-        <details class="card workers-card" open>
+        <section class="management-section-grid">
+          <details id="managementOperationsSection" class="management-section management-section-wide" data-role-section="operations" open>
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Betrieb heute</span>
+                <span id="managementOperationsSummary" class="worker-action-detail">Live-Status</span>
+              </span>
+            </summary>
+            <div class="management-section-body">
+              <div class="management-card-grid">
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Heute anwesend</p>
+                  <p id="presentCount" class="management-kpi-value">0</p>
+                  <p id="presentHint" class="management-mini-note">Keine aktiven Mitarbeiter.</p>
+                </article>
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Gesamt aktiv</p>
+                  <p id="totalCount" class="management-kpi-value">0</p>
+                  <p id="totalHint" class="management-mini-note">Noch keine Mitarbeiterdaten verfuegbar.</p>
+                </article>
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Nicht eingecheckt</p>
+                  <p id="managementOpsNotCheckedIn" class="management-kpi-value">0</p>
+                  <p class="management-mini-note">Aktive Mitarbeiter ohne heutige Buchung.</p>
+                </article>
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Heute offen</p>
+                  <p id="managementOpsUnclosed" class="management-kpi-value">0</p>
+                  <p class="management-mini-note">Letzte Buchung ist kein Checkout.</p>
+                </article>
+              </div>
+            </div>
+          </details>
+
+          <details id="managementFinanceSection" class="management-section" data-role-section="finance" open>
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Abrechnung</span>
+                <span id="managementFinanceSummary" class="worker-action-detail">Monat</span>
+              </span>
+            </summary>
+            <div class="management-section-body">
+              <div class="management-card-grid">
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Offen</p>
+                  <p id="managementPendingAmount" class="management-kpi-value">0,00 EUR</p>
+                  <p class="management-mini-note">Pending Payments im laufenden Monat.</p>
+                </article>
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Bestaetigt</p>
+                  <p id="managementConfirmedAmount" class="management-kpi-value">0,00 EUR</p>
+                  <p class="management-mini-note">Confirmed Payments im laufenden Monat.</p>
+                </article>
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Offene Ueberstunden</p>
+                  <p id="managementOvertimeHours" class="management-kpi-value">0 h</p>
+                  <p class="management-mini-note">Aus Overtime-Zahlungseintraegen.</p>
+                </article>
+              </div>
+            </div>
+          </details>
+
+          <details id="managementPartnersSection" class="management-section" data-role-section="partners" open>
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Partner / Gewerbe</span>
+                <span id="managementPartnersSummary" class="worker-action-detail">Aktive Personen</span>
+              </span>
+            </summary>
+            <div class="management-section-body">
+              <div class="management-card-grid">
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Subunternehmer</p>
+                  <p id="managementSubcontractorCount" class="management-kpi-value">0</p>
+                  <p class="management-mini-note">Worker-Type SUBUNTERNEHMER.</p>
+                </article>
+                <article class="management-mini-card">
+                  <p class="management-mini-label">Gewerbe</p>
+                  <p id="managementTradeCount" class="management-kpi-value">0</p>
+                  <p class="management-mini-note">Worker-Type GEWERBE.</p>
+                </article>
+              </div>
+            </div>
+          </details>
+
+          <details id="managementEntrySection" class="management-section" data-role-section="entry_points" open>
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Schnelleinstieg</span>
+                <span id="managementEntrySummary" class="worker-action-detail">People, Sites, Calendar, Exports</span>
+              </span>
+            </summary>
+            <div class="management-section-body">
+              <div class="management-entry-grid">
+                <button class="management-entry-card" type="button" data-management-entry="people" data-role-section="people">
+                  <span>
+                    <span class="management-entry-label">People</span>
+                    <span id="managementPeopleEntryNote" class="management-entry-note">Mitarbeiterliste oeffnen.</span>
+                  </span>
+                  <span class="management-entry-mark">P</span>
+                </button>
+                <button class="management-entry-card" type="button" data-management-entry="sites" data-role-section="operations">
+                  <span>
+                    <span class="management-entry-label">Sites</span>
+                    <span id="managementSitesEntryNote" class="management-entry-note">Objekte im aktuellen Unternehmen.</span>
+                  </span>
+                  <span class="management-entry-mark">S</span>
+                </button>
+                <button class="management-entry-card" type="button" data-management-entry="calendar" data-role-section="operations">
+                  <span>
+                    <span class="management-entry-label">Calendar</span>
+                    <span id="managementCalendarEntryNote" class="management-entry-note">Kommende Eintraege.</span>
+                  </span>
+                  <span class="management-entry-mark">C</span>
+                </button>
+                <button class="management-entry-card" type="button" data-management-entry="exports" data-role-section="finance">
+                  <span>
+                    <span class="management-entry-label">Exports</span>
+                    <span id="managementExportsEntryNote" class="management-entry-note">Abrechnungsexporte.</span>
+                  </span>
+                  <span class="management-entry-mark">E</span>
+                </button>
+              </div>
+              <p id="managementEntryState" class="management-entry-state">Schnelleinstiege nutzen bestehende Daten. Eigene Vollseiten folgen separat.</p>
+            </div>
+          </details>
+        </section>
+
+        <details id="managementWorkersSection" class="card workers-card" data-role-section="people" open>
           <summary class="section-summary">
             <div class="workers-head">
             <h2 style="font-size: 22px; font-weight: 800;">Arbeiter</h2>
@@ -1570,7 +1890,7 @@
           <div id="mobileWorkers" class="mobile-list is-hidden"></div>
         </details>
 
-        <details class="card requests-card" open>
+        <details id="managementRequestsSection" class="card requests-card" data-role-section="requests" open>
           <summary class="section-summary">
             <div class="workers-head">
             <h2 style="font-size: 22px; font-weight: 800;">Anfragen</h2>
@@ -1666,6 +1986,40 @@
       summaryCopy: document.getElementById("summaryCopy"),
       userRole: document.getElementById("userRole"),
       updatedAt: document.getElementById("updatedAt"),
+      managementWorkingCount: document.getElementById("managementWorkingCount"),
+      managementWorkingNote: document.getElementById("managementWorkingNote"),
+      managementBreakCount: document.getElementById("managementBreakCount"),
+      managementBreakNote: document.getElementById("managementBreakNote"),
+      managementNotCheckedInCount: document.getElementById("managementNotCheckedInCount"),
+      managementNotCheckedInNote: document.getElementById("managementNotCheckedInNote"),
+      managementUnclosedCount: document.getElementById("managementUnclosedCount"),
+      managementUnclosedNote: document.getElementById("managementUnclosedNote"),
+      managementOpenRequestsCount: document.getElementById("managementOpenRequestsCount"),
+      managementOpenRequestsNote: document.getElementById("managementOpenRequestsNote"),
+      managementCashflowValue: document.getElementById("managementCashflowValue"),
+      managementCashflowNote: document.getElementById("managementCashflowNote"),
+      managementOperationsSection: document.getElementById("managementOperationsSection"),
+      managementFinanceSection: document.getElementById("managementFinanceSection"),
+      managementPartnersSection: document.getElementById("managementPartnersSection"),
+      managementEntrySection: document.getElementById("managementEntrySection"),
+      managementWorkersSection: document.getElementById("managementWorkersSection"),
+      managementRequestsSection: document.getElementById("managementRequestsSection"),
+      managementOperationsSummary: document.getElementById("managementOperationsSummary"),
+      managementFinanceSummary: document.getElementById("managementFinanceSummary"),
+      managementPartnersSummary: document.getElementById("managementPartnersSummary"),
+      managementEntrySummary: document.getElementById("managementEntrySummary"),
+      managementOpsNotCheckedIn: document.getElementById("managementOpsNotCheckedIn"),
+      managementOpsUnclosed: document.getElementById("managementOpsUnclosed"),
+      managementPendingAmount: document.getElementById("managementPendingAmount"),
+      managementConfirmedAmount: document.getElementById("managementConfirmedAmount"),
+      managementOvertimeHours: document.getElementById("managementOvertimeHours"),
+      managementSubcontractorCount: document.getElementById("managementSubcontractorCount"),
+      managementTradeCount: document.getElementById("managementTradeCount"),
+      managementPeopleEntryNote: document.getElementById("managementPeopleEntryNote"),
+      managementSitesEntryNote: document.getElementById("managementSitesEntryNote"),
+      managementCalendarEntryNote: document.getElementById("managementCalendarEntryNote"),
+      managementExportsEntryNote: document.getElementById("managementExportsEntryNote"),
+      managementEntryState: document.getElementById("managementEntryState"),
       presentCount: document.getElementById("presentCount"),
       presentHint: document.getElementById("presentHint"),
       totalCount: document.getElementById("totalCount"),
@@ -1691,6 +2045,7 @@
     let activeRequestAction = null;
     let dashboardAuth = null;
     let workerDisclosureDefaultsApplied = false;
+    let managementDisclosureDefaultsApplied = false;
     let workerProblemSubmitting = false;
 
     function showState(activeId) {
@@ -1912,6 +2267,56 @@
       return "Dashboard";
     }
 
+    function formatAccessRole(value, fallbackRole) {
+      const labels = {
+        company_owner: "Company Owner",
+        objektmanager: "Objektmanager",
+        accountant: "Accountant",
+        platform_superadmin: "Platform Superadmin",
+      };
+      return labels[value] || formatRole(fallbackRole);
+    }
+
+    function managementAllowedSections(data) {
+      const groups = data.management_home.role_groups;
+      if (groups.length) {
+        return new Set(groups);
+      }
+      return new Set(["operations", "finance", "partners", "entry_points", "people", "requests"]);
+    }
+
+    function applyManagementRoleVisibility(data) {
+      const allowed = managementAllowedSections(data);
+      document.querySelectorAll("#appContent [data-role-section]").forEach((node) => {
+        const section = node.getAttribute("data-role-section");
+        node.classList.toggle("is-role-hidden", section ? !allowed.has(section) : false);
+      });
+    }
+
+    function applyManagementDisclosureDefaults(data) {
+      if (managementDisclosureDefaultsApplied) {
+        return;
+      }
+
+      managementDisclosureDefaultsApplied = true;
+      const allowed = managementAllowedSections(data);
+      const isCompact = window.matchMedia("(max-width: 739px)").matches;
+      const accessRole = data.management_home.access_role || data.user.access_role;
+
+      setDetailsOpen(elements.managementOperationsSection, allowed.has("operations"));
+      setDetailsOpen(
+        elements.managementFinanceSection,
+        allowed.has("finance") && (!isCompact || accessRole === "accountant")
+      );
+      setDetailsOpen(elements.managementPartnersSection, allowed.has("partners") && !isCompact);
+      setDetailsOpen(elements.managementEntrySection, allowed.has("entry_points"));
+      setDetailsOpen(elements.managementWorkersSection, allowed.has("people") && !isCompact);
+      setDetailsOpen(
+        elements.managementRequestsSection,
+        allowed.has("requests") && (!isCompact || data.management_home.requests.open > 0)
+      );
+    }
+
     function formatWorkerType(value) {
       const labels = {
         FESTANGESTELLT: "Festangestellt",
@@ -2022,16 +2427,54 @@
     function normaliseData(payload) {
       const user = payload && typeof payload === "object" ? payload.user || {} : {};
       const today = payload && typeof payload === "object" ? payload.today || {} : {};
+      const home = payload && typeof payload === "object" ? payload.management_home || {} : {};
+      const operations = home && typeof home === "object" ? home.operations || {} : {};
+      const homeRequests = home && typeof home === "object" ? home.requests || {} : {};
+      const finance = home && typeof home === "object" ? home.finance || {} : {};
+      const partners = home && typeof home === "object" ? home.partners || {} : {};
+      const quickEntries = home && typeof home === "object" ? home.quick_entries || {} : {};
       const workers = Array.isArray(payload?.workers) ? payload.workers : [];
 
       return {
         user: {
           name: String(user.name || "Dashboard"),
           role: String(user.role || ""),
+          access_role: String(user.access_role || home.access_role || ""),
         },
         today: {
           present: Number(today.present || 0),
           total_workers: Number(today.total_workers || 0),
+        },
+        management_home: {
+          access_role: String(home.access_role || user.access_role || ""),
+          role_groups: Array.isArray(home.role_groups) ? home.role_groups.map((value) => String(value)) : [],
+          scope_label: String(home.scope_label || "Alle sichtbaren Unternehmensdaten"),
+          operations: {
+            working: Number(operations.working || 0),
+            on_break: Number(operations.on_break || 0),
+            not_checked_in: Number(operations.not_checked_in || 0),
+            unclosed_days: Number(operations.unclosed_days || 0),
+          },
+          requests: {
+            open: Number(homeRequests.open || 0),
+          },
+          finance: {
+            pending_amount: Number(finance.pending_amount || 0),
+            confirmed_amount: Number(finance.confirmed_amount || 0),
+            pending_overtime_hours: Number(finance.pending_overtime_hours || 0),
+            payment_entries: Number(finance.payment_entries || 0),
+          },
+          partners: {
+            subcontractor_workers: Number(partners.subcontractor_workers || 0),
+            trade_workers: Number(partners.trade_workers || 0),
+            total_partner_workers: Number(partners.total_partner_workers || 0),
+          },
+          quick_entries: {
+            people: Number(quickEntries.people || 0),
+            sites: Number(quickEntries.sites || 0),
+            calendar: Number(quickEntries.calendar || 0),
+            exports: Number(quickEntries.exports || 0),
+          },
         },
         workers: workers.map((worker) => ({
           id: Number(worker.id || 0),
@@ -2159,26 +2602,132 @@
       const present = data.today.present;
       const total = data.today.total_workers;
       const absent = Math.max(total - present, 0);
+      const home = data.management_home;
+      const operations = home.operations;
+      const finance = home.finance;
+      const partners = home.partners;
+      const quickEntries = home.quick_entries;
 
       elements.summaryHeadline.textContent = data.user.name;
       elements.summaryCopy.textContent =
         total > 0
-          ? `${present} von ${total} aktiven Mitarbeitern sind heute vor Ort.`
+          ? `${home.scope_label}. ${present} von ${total} aktiven Mitarbeitern hatten heute eine Buchung.`
           : "Noch keine aktiven Mitarbeiter fuer dieses Dashboard.";
-      elements.userRole.textContent = formatRole(data.user.role);
+      elements.userRole.textContent = formatAccessRole(data.user.access_role || home.access_role, data.user.role);
       elements.updatedAt.textContent = `Zuletzt aktualisiert: ${formatUpdatedAt()}`;
+
+      elements.managementWorkingCount.textContent = String(operations.working);
+      elements.managementWorkingNote.textContent =
+        operations.working === 1 ? "1 Person mit laufender Arbeitszeit." : `${operations.working} Personen mit laufender Arbeitszeit.`;
+      elements.managementBreakCount.textContent = String(operations.on_break);
+      elements.managementBreakNote.textContent =
+        operations.on_break === 1 ? "1 Person ist in Pause." : `${operations.on_break} Personen sind in Pause.`;
+      elements.managementNotCheckedInCount.textContent = String(operations.not_checked_in);
+      elements.managementNotCheckedInNote.textContent =
+        operations.not_checked_in === 1 ? "1 aktive Person ohne Buchung." : `${operations.not_checked_in} aktive Personen ohne Buchung.`;
+      elements.managementUnclosedCount.textContent = String(operations.unclosed_days);
+      elements.managementUnclosedNote.textContent =
+        operations.unclosed_days === 1 ? "1 Tag ist heute noch offen." : `${operations.unclosed_days} Buchungen sind heute noch offen.`;
+      elements.managementOpenRequestsCount.textContent = String(home.requests.open);
+      elements.managementOpenRequestsNote.textContent =
+        home.requests.open === 1 ? "1 offene Meldung wartet." : `${home.requests.open} offene Meldungen.`;
+      elements.managementCashflowValue.textContent = formatCurrency(finance.pending_amount);
+      elements.managementCashflowNote.textContent =
+        finance.payment_entries > 0
+          ? `${finance.payment_entries} Zahlungseintraege im Monat.`
+          : "Noch keine Zahlungseintraege im Monat.";
+
+      elements.managementOperationsSummary.textContent =
+        `${operations.working} arbeiten, ${operations.on_break} Pause`;
+      elements.managementFinanceSummary.textContent =
+        `${formatCurrency(finance.pending_amount)} offen`;
+      elements.managementPartnersSummary.textContent =
+        `${partners.total_partner_workers} Partner/Gewerbe`;
+      elements.managementEntrySummary.textContent =
+        `${quickEntries.people} People, ${quickEntries.sites} Sites`;
+      elements.managementOpsNotCheckedIn.textContent = String(operations.not_checked_in);
+      elements.managementOpsUnclosed.textContent = String(operations.unclosed_days);
+      elements.managementPendingAmount.textContent = formatCurrency(finance.pending_amount);
+      elements.managementConfirmedAmount.textContent = formatCurrency(finance.confirmed_amount);
+      elements.managementOvertimeHours.textContent = `${finance.pending_overtime_hours} h`;
+      elements.managementSubcontractorCount.textContent = String(partners.subcontractor_workers);
+      elements.managementTradeCount.textContent = String(partners.trade_workers);
+      elements.managementPeopleEntryNote.textContent =
+        quickEntries.people === 1 ? "1 Person in der Liste." : `${quickEntries.people} Personen in der Liste.`;
+      elements.managementSitesEntryNote.textContent =
+        quickEntries.sites === 1 ? "1 aktives Objekt." : `${quickEntries.sites} aktive Objekte.`;
+      elements.managementCalendarEntryNote.textContent =
+        quickEntries.calendar === 1 ? "1 kommender Eintrag." : `${quickEntries.calendar} kommende Eintraege.`;
+      elements.managementExportsEntryNote.textContent =
+        quickEntries.exports > 0
+          ? `${quickEntries.exports} Zahlungseintraege im Monat.`
+          : "Exportdaten erscheinen nach Zahlungen.";
 
       elements.presentCount.textContent = String(present);
       elements.presentHint.textContent =
         absent > 0
-          ? `${absent} Mitarbeiter sind aktuell nicht vor Ort.`
-          : "Alle aktiven Mitarbeiter sind aktuell vor Ort.";
+          ? `${absent} aktive Mitarbeiter hatten heute noch keine Buchung oder sind bereits fertig.`
+          : "Alle aktiven Mitarbeiter haben heute gebucht.";
 
       elements.totalCount.textContent = String(total);
       elements.totalHint.textContent =
         total > 0
           ? `${total} aktive Mitarbeiter sind im Dashboard hinterlegt.`
           : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Gesamtzahl.";
+
+      applyManagementRoleVisibility(data);
+      applyManagementDisclosureDefaults(data);
+    }
+
+    function openManagementSection(section) {
+      if (!section) {
+        return;
+      }
+      section.open = true;
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function setManagementEntryState(message) {
+      elements.managementEntryState.textContent = message;
+    }
+
+    function handleManagementEntry(entry) {
+      const home = dashboardData ? dashboardData.management_home : null;
+      if (!home) {
+        return;
+      }
+
+      if (entry === "people") {
+        openManagementSection(elements.managementWorkersSection);
+        setManagementEntryState("People geoeffnet. Die Liste nutzt die bestehenden sichtbaren Mitarbeiterdaten.");
+        return;
+      }
+
+      if (entry === "sites") {
+        setManagementEntryState(
+          home.quick_entries.sites === 1
+            ? "1 aktives Objekt ist hinterlegt. Ein eigener Sites-Screen folgt separat."
+            : `${home.quick_entries.sites} aktive Objekte sind hinterlegt. Ein eigener Sites-Screen folgt separat.`
+        );
+        return;
+      }
+
+      if (entry === "calendar") {
+        setManagementEntryState(
+          home.quick_entries.calendar === 1
+            ? "1 kommender Kalendereintrag ist hinterlegt. Der volle Kalender bleibt ein eigener naechster UI-Schritt."
+            : `${home.quick_entries.calendar} kommende Kalendereintraege sind hinterlegt. Der volle Kalender bleibt ein eigener naechster UI-Schritt.`
+        );
+        return;
+      }
+
+      if (entry === "exports") {
+        setManagementEntryState(
+          home.finance.payment_entries > 0
+            ? `${home.finance.payment_entries} Zahlungseintraege im Monat. Export bleibt im bestehenden Backend, ohne neue Workflow-Logik.`
+            : "Noch keine Zahlungseintraege im Monat. Export bleibt im bestehenden Backend, ohne neue Workflow-Logik."
+        );
+      }
     }
 
     function renderWorkers() {
@@ -2366,7 +2915,7 @@
     function renderDashboard(data) {
       setShellCopy(
         "Management",
-        "Kompakte Live-Uebersicht fuer Anwesenheit, aktive Mitarbeiter und Vertragsstunden."
+        "Kanonische Home fuer Betrieb, Meldungen, Abrechnung und schnelle Wege."
       );
       renderSummary(data);
       renderWorkers();
@@ -2629,6 +3178,10 @@
         }
 
         await loadRequests(auth);
+        if (dashboardData) {
+          dashboardData.management_home.requests.open = requestData.filter((request) => request.status === "open").length;
+          renderSummary(dashboardData);
+        }
         renderRequests();
         setSessionState("Anfrage aktualisiert", "success");
       } catch (error) {
@@ -2816,6 +3369,9 @@
     elements.workerProblemForm.addEventListener("submit", submitWorkerProblem);
     elements.workerProblemCloseButton.addEventListener("click", () => closeWorkerProblemPanel({ reset: false }));
     elements.workerProblemCancelButton.addEventListener("click", () => closeWorkerProblemPanel({ reset: true }));
+    document.querySelectorAll("[data-management-entry]").forEach((button) => {
+      button.addEventListener("click", () => handleManagementEntry(button.dataset.managementEntry || ""));
+    });
 
     function bindRequestActions(container) {
       container.addEventListener("click", (event) => {

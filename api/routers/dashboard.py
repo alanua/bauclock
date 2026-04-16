@@ -24,7 +24,7 @@ from api.services.dashboard_access import (
 )
 from db.calendar_service import list_worker_calendar_events
 from db.database import get_db
-from db.models import CalendarEvent, Company, EventType, Payment, Request, Site, TimeEvent, Worker
+from db.models import CalendarEvent, Company, EventType, Payment, Request, RequestStatus, Site, TimeEvent, Worker
 from db.request_service import (
     RequestAccessError,
     create_request,
@@ -337,6 +337,30 @@ def _dashboard_context_user(context: DashboardContext) -> dict[str, str]:
     }
 
 
+def _management_access_role(context: DashboardContext) -> str:
+    if context.is_platform_superadmin:
+        return "platform_superadmin"
+    if not context.worker:
+        return "company_owner"
+
+    access_role = str(getattr(context.worker, "access_role", "") or "").strip()
+    if access_role and access_role != "worker":
+        return access_role
+    if getattr(context.worker, "created_by", None) is None:
+        return "company_owner"
+    return "objektmanager"
+
+
+def _management_role_groups(access_role: str) -> list[str]:
+    if access_role in {"company_owner", "platform_superadmin"}:
+        return ["operations", "finance", "partners", "entry_points", "people", "requests"]
+    if access_role == "accountant":
+        return ["finance", "entry_points", "requests"]
+    if access_role == "objektmanager":
+        return ["operations", "partners", "entry_points", "people", "requests"]
+    return ["operations", "entry_points", "people", "requests"]
+
+
 def _dashboard_manager(context: DashboardContext):
     if context.worker:
         return context.worker
@@ -358,6 +382,164 @@ async def _get_authenticated_dashboard_context(
     if (token or "").strip():
         return await get_dashboard_context(token, db, redis_client)
     return await get_miniapp_dashboard_context(telegram_init_data, db)
+
+
+async def _get_company_today_events(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    today: date,
+) -> list[TimeEvent]:
+    result = await db.execute(
+        select(TimeEvent)
+        .join(Worker, Worker.id == TimeEvent.worker_id)
+        .where(
+            Worker.company_id == company_id,
+            Worker.is_active.is_(True),
+            Worker.time_tracking_enabled.is_(True),
+            func.date(TimeEvent.timestamp) == today,
+        )
+        .order_by(TimeEvent.worker_id.asc(), TimeEvent.timestamp.asc(), TimeEvent.id.asc())
+    )
+    return list(result.scalars().all())
+
+
+def _management_today_status(
+    workers: list[Worker],
+    events: list[TimeEvent],
+) -> dict[str, int]:
+    events_by_worker: dict[int, list[TimeEvent]] = {}
+    for event in events:
+        events_by_worker.setdefault(event.worker_id, []).append(event)
+
+    working = 0
+    on_break = 0
+    unclosed = 0
+    not_checked_in = 0
+    for worker in workers:
+        worker_events = events_by_worker.get(worker.id, [])
+        if not worker_events:
+            not_checked_in += 1
+            continue
+
+        last_event_type = _event_type_value(worker_events[-1].event_type)
+        if last_event_type in {EventType.CHECKIN.value, EventType.PAUSE_END.value}:
+            working += 1
+        if last_event_type == EventType.PAUSE_START.value:
+            on_break += 1
+        if last_event_type != EventType.CHECKOUT.value:
+            unclosed += 1
+
+    return {
+        "working": working,
+        "on_break": on_break,
+        "not_checked_in": not_checked_in,
+        "unclosed_days": unclosed,
+    }
+
+
+async def _serialize_management_home(
+    db: AsyncSession,
+    *,
+    context: DashboardContext,
+    workers: list[Worker],
+    today: date,
+) -> dict[str, object]:
+    access_role = _management_access_role(context)
+    today_events = await _get_company_today_events(db, company_id=context.company_id, today=today)
+    today_status = _management_today_status(workers, today_events)
+
+    open_request_count = await db.scalar(
+        select(func.count(Request.id)).where(
+            Request.company_id == context.company_id,
+            Request.status == RequestStatus.OPEN.value,
+        )
+    )
+    active_site_count = await db.scalar(
+        select(func.count(Site.id)).where(
+            Site.company_id == context.company_id,
+            Site.is_active.is_(True),
+        )
+    )
+    upcoming_calendar_count = await db.scalar(
+        select(func.count(CalendarEvent.id)).where(
+            CalendarEvent.company_id == context.company_id,
+            CalendarEvent.is_active.is_(True),
+            CalendarEvent.date_to >= today,
+        )
+    )
+
+    month_start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+    payments = (
+        await db.execute(
+            select(Payment)
+            .join(Worker, Worker.id == Payment.worker_id)
+            .where(
+                Worker.company_id == context.company_id,
+                Payment.period_start >= month_start,
+            )
+        )
+    ).scalars().all()
+    pending_payments = [
+        payment
+        for payment in payments
+        if _event_type_value(payment.status) == "PENDING"
+    ]
+    confirmed_payments = [
+        payment
+        for payment in payments
+        if _event_type_value(payment.status) == "CONFIRMED"
+    ]
+    pending_overtime_hours = sum(
+        float(payment.hours_paid or 0)
+        for payment in pending_payments
+        if _event_type_value(payment.payment_type) == "OVERTIME"
+    )
+
+    subcontractor_workers = [
+        worker
+        for worker in workers
+        if _event_type_value(worker.worker_type) == "SUBUNTERNEHMER"
+    ]
+    trade_workers = [
+        worker
+        for worker in workers
+        if _event_type_value(worker.worker_type) == "GEWERBE"
+    ]
+    scope_label = "Alle sichtbaren Unternehmensdaten"
+    if access_role == "objektmanager" and context.worker and context.worker.site_id:
+        site = await db.get(Site, context.worker.site_id)
+        if site:
+            scope_label = f"Objektfokus: {site.name}"
+    elif access_role == "accountant":
+        scope_label = "Abrechnung und Meldungen"
+
+    return {
+        "access_role": access_role,
+        "role_groups": _management_role_groups(access_role),
+        "scope_label": scope_label,
+        "operations": today_status,
+        "requests": {
+            "open": int(open_request_count or 0),
+        },
+        "finance": {
+            "pending_amount": round(sum(float(payment.amount_paid or 0) for payment in pending_payments), 2),
+            "confirmed_amount": round(sum(float(payment.amount_paid or 0) for payment in confirmed_payments), 2),
+            "pending_overtime_hours": round(pending_overtime_hours, 2),
+            "payment_entries": len(payments),
+        },
+        "partners": {
+            "subcontractor_workers": len(subcontractor_workers),
+            "trade_workers": len(trade_workers),
+            "total_partner_workers": len(subcontractor_workers) + len(trade_workers),
+        },
+        "quick_entries": {
+            "people": len(workers),
+            "sites": int(active_site_count or 0),
+            "calendar": int(upcoming_calendar_count or 0),
+            "exports": len(payments),
+        },
+    }
 
 
 @router.get("/dashboard")
@@ -418,12 +600,21 @@ async def dashboard_data(
     workers = (await db.execute(stmt)).scalars().all()
     present_ids = await get_company_present_worker_ids(db, context.company_id, today)
 
+    user = _dashboard_context_user(context)
+    user["access_role"] = _management_access_role(context)
+
     return {
-        "user": _dashboard_context_user(context),
+        "user": user,
         "today": {
             "present": len(present_ids),
             "total_workers": len(workers),
         },
+        "management_home": await _serialize_management_home(
+            db,
+            context=context,
+            workers=list(workers),
+            today=today,
+        ),
         "workers": [
             {
                 "id": company_worker.id,
