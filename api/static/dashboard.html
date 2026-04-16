@@ -26,6 +26,9 @@
       --shadow: 0 22px 52px rgba(49, 67, 58, 0.10), 0 7px 20px rgba(49, 67, 58, 0.07);
       --shadow-soft: 0 14px 34px rgba(49, 67, 58, 0.075), 0 3px 10px rgba(49, 67, 58, 0.045);
       --shadow-chip: 0 10px 22px rgba(49, 67, 58, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.74);
+      --worker-shadow-panel: 0 20px 46px rgba(49, 67, 58, 0.075), 0 6px 18px rgba(49, 67, 58, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+      --worker-shadow-card: 0 13px 30px rgba(49, 67, 58, 0.058), 0 3px 10px rgba(49, 67, 58, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.68);
+      --worker-shadow-chip: 0 8px 18px rgba(49, 67, 58, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.72);
       --radius: 30px;
       --radius-sm: 22px;
     }
@@ -729,7 +732,9 @@
 
     .worker-home {
       display: grid;
-      gap: 16px;
+      gap: 14px;
+      width: min(940px, 100%);
+      margin: 0 auto;
     }
 
     .worker-hero {
@@ -738,6 +743,9 @@
       padding: 20px;
       position: relative;
       overflow: hidden;
+      background: rgba(255, 253, 248, 0.92);
+      border-color: rgba(255, 255, 255, 0.78);
+      box-shadow: var(--worker-shadow-panel);
     }
 
     .worker-hero::before {
@@ -773,6 +781,7 @@
       color: var(--text-muted);
       font-size: 15px;
       line-height: 1.55;
+      max-width: 52ch;
     }
 
     .worker-status-pill {
@@ -785,7 +794,7 @@
       border-radius: 999px;
       background: rgba(250, 246, 238, 0.9);
       border: 1px solid var(--border);
-      box-shadow: var(--shadow-chip);
+      box-shadow: var(--worker-shadow-chip);
       color: var(--text);
       font-size: 14px;
       font-weight: 800;
@@ -823,7 +832,7 @@
       border-radius: var(--radius-sm);
       background: rgba(255, 253, 248, 0.88);
       color: var(--text);
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--worker-shadow-card);
       padding: 16px;
       display: flex;
       align-items: center;
@@ -831,11 +840,25 @@
       gap: 14px;
       cursor: pointer;
       text-align: left;
+      transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
     }
 
     .worker-action-card.primary {
       background: linear-gradient(135deg, #a9ddca 0%, #75c5a7 100%);
       color: #17362d;
+    }
+
+    .worker-action-card:focus-visible {
+      outline: 3px solid rgba(61, 127, 105, 0.24);
+      outline-offset: 3px;
+    }
+
+    @media (hover: hover) {
+      .worker-action-card:hover {
+        transform: translateY(-1px);
+        border-color: rgba(61, 127, 105, 0.18);
+        box-shadow: var(--worker-shadow-panel);
+      }
     }
 
     .worker-action-label {
@@ -859,9 +882,31 @@
       display: grid;
       place-items: center;
       background: rgba(255, 253, 248, 0.72);
-      box-shadow: var(--shadow-chip);
+      box-shadow: var(--worker-shadow-chip);
       font-weight: 900;
       flex: 0 0 auto;
+    }
+
+    .worker-action-feedback {
+      display: none;
+      min-height: 44px;
+      padding: 12px 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(61, 127, 105, 0.14);
+      background: rgba(228, 246, 239, 0.72);
+      color: var(--text);
+      box-shadow: var(--worker-shadow-card);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .worker-action-feedback.is-visible {
+      display: block;
+    }
+
+    .worker-action-feedback.warning {
+      border-color: rgba(183, 139, 53, 0.24);
+      background: rgba(251, 239, 213, 0.78);
     }
 
     .worker-block-grid {
@@ -873,8 +918,22 @@
       background: rgba(255, 253, 248, 0.94);
       border: 1px solid rgba(255, 255, 255, 0.74);
       border-radius: var(--radius);
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--worker-shadow-card);
       padding: 0 18px;
+    }
+
+    .worker-section[open] {
+      box-shadow: var(--worker-shadow-panel);
+    }
+
+    .worker-section > .section-summary {
+      min-height: 64px;
+      padding: 2px 0;
+    }
+
+    .worker-section > .section-summary::after {
+      background: rgba(228, 246, 239, 0.92);
+      box-shadow: var(--worker-shadow-chip);
     }
 
     .worker-section-body {
@@ -893,7 +952,7 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       background: rgba(250, 246, 238, 0.78);
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--worker-shadow-card);
       padding: 15px;
     }
 
@@ -928,10 +987,20 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       background: rgba(250, 246, 238, 0.78);
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--worker-shadow-card);
       padding: 14px;
       display: grid;
       gap: 6px;
+    }
+
+    .worker-money-note {
+      padding: 12px 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(183, 139, 53, 0.20);
+      background: rgba(251, 239, 213, 0.62);
+      color: #6c5524;
+      font-size: 13px;
+      line-height: 1.45;
     }
 
     .worker-list-title {
@@ -1006,11 +1075,11 @@
       }
 
       .worker-block-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .worker-block-grid .worker-section:first-child {
-        grid-column: span 2;
+      #workerProblemSection {
+        grid-column: 1 / -1;
       }
     }
 
@@ -1154,18 +1223,19 @@
             <button id="workerScanButton" class="worker-action-card primary" type="button">
               <span>
                 <span class="worker-action-label">Code scannen</span>
-                <span id="workerScanDetail" class="worker-action-detail">Objekt-QR scannen.</span>
+                <span id="workerScanDetail" class="worker-action-detail">Telegram-Scanner oeffnen.</span>
               </span>
               <span class="worker-action-mark">QR</span>
             </button>
             <button id="workerProblemButton" class="worker-action-card" type="button">
               <span>
                 <span class="worker-action-label">Problem melden</span>
-                <span class="worker-action-detail">Buchung oder Objekt klaeren.</span>
+                <span id="workerProblemDetail" class="worker-action-detail">Weiter im Telegram-Arbeitsfluss.</span>
               </span>
               <span class="worker-action-mark">!</span>
             </button>
           </div>
+          <div id="workerActionFeedback" class="worker-action-feedback" aria-live="polite"></div>
         </section>
 
         <section class="worker-block-grid">
@@ -1189,7 +1259,7 @@
             <summary class="section-summary">
               <span>
                 <span class="worker-action-label">Meine Stunden</span>
-                <span class="worker-action-detail">Heute und Woche</span>
+                <span id="workerHoursSummary" class="worker-action-detail">Heute und Woche</span>
               </span>
             </summary>
             <div class="worker-section-body">
@@ -1212,15 +1282,18 @@
             <summary class="section-summary">
               <span>
                 <span class="worker-action-label">Mein Geld</span>
-                <span class="worker-action-detail">Eigene Werte</span>
+                <span id="workerMoneySummary" class="worker-action-detail">Vorlaeufige Schaetzung</span>
               </span>
             </summary>
             <div class="worker-section-body">
               <div class="worker-stat">
-                <p class="worker-stat-label">Heute geschaetzt</p>
+                <p class="worker-stat-label">Heute vorlaeufig</p>
                 <p id="workerTodayMoney" class="worker-stat-value">0,00 EUR</p>
                 <p id="workerMoneyDetail" class="worker-stat-note">Noch kein Stundensatz hinterlegt.</p>
               </div>
+              <p id="workerMoneyEstimateNote" class="worker-money-note">
+                Vorlaeufige Schaetzung. Die finale Abrechnung kann abweichen.
+              </p>
             </div>
           </details>
 
@@ -1239,7 +1312,7 @@
           <details id="workerProblemSection" class="worker-section">
             <summary class="section-summary">
               <span>
-                <span class="worker-action-label">Problem melden</span>
+                <span class="worker-action-label">Probleme / Meldungen</span>
                 <span id="workerRequestSummary" class="worker-action-detail">Eigene Meldungen</span>
               </span>
             </summary>
@@ -1385,14 +1458,24 @@
       workerScanButton: document.getElementById("workerScanButton"),
       workerProblemButton: document.getElementById("workerProblemButton"),
       workerScanDetail: document.getElementById("workerScanDetail"),
+      workerProblemDetail: document.getElementById("workerProblemDetail"),
+      workerActionFeedback: document.getElementById("workerActionFeedback"),
+      workerStatusSection: document.getElementById("workerStatusSection"),
+      workerHoursSection: document.getElementById("workerHoursSection"),
+      workerMoneySection: document.getElementById("workerMoneySection"),
+      workerCalendarSection: document.getElementById("workerCalendarSection"),
+      workerProblemSection: document.getElementById("workerProblemSection"),
       workerStatusSummary: document.getElementById("workerStatusSummary"),
       workerStatusValue: document.getElementById("workerStatusValue"),
       workerStatusDetail: document.getElementById("workerStatusDetail"),
+      workerHoursSummary: document.getElementById("workerHoursSummary"),
       workerTodayHours: document.getElementById("workerTodayHours"),
       workerBreakHours: document.getElementById("workerBreakHours"),
       workerContractHours: document.getElementById("workerContractHours"),
+      workerMoneySummary: document.getElementById("workerMoneySummary"),
       workerTodayMoney: document.getElementById("workerTodayMoney"),
       workerMoneyDetail: document.getElementById("workerMoneyDetail"),
+      workerMoneyEstimateNote: document.getElementById("workerMoneyEstimateNote"),
       workerCalendarSummary: document.getElementById("workerCalendarSummary"),
       workerCalendarList: document.getElementById("workerCalendarList"),
       workerRequestSummary: document.getElementById("workerRequestSummary"),
@@ -1431,6 +1514,7 @@
     let currentSearch = "";
     let activeRequestAction = null;
     let dashboardAuth = null;
+    let workerDisclosureDefaultsApplied = false;
 
     function showState(activeId) {
       [
@@ -1457,6 +1541,52 @@
     function setShellCopy(title, subtitle) {
       elements.brandTitle.textContent = title;
       elements.brandSubtitle.textContent = subtitle;
+    }
+
+    function isTelegramMiniApp() {
+      const webApp = window.Telegram && window.Telegram.WebApp;
+      return Boolean(webApp && webApp.initData);
+    }
+
+    function supportsTelegramQrScan() {
+      const webApp = window.Telegram && window.Telegram.WebApp;
+      return Boolean(webApp && typeof webApp.showScanQrPopup === "function");
+    }
+
+    function setWorkerActionFeedback(message, tone = "info") {
+      if (!elements.workerActionFeedback) {
+        return;
+      }
+
+      elements.workerActionFeedback.textContent = message || "";
+      elements.workerActionFeedback.classList.remove("is-visible", "warning", "info");
+      if (message) {
+        elements.workerActionFeedback.classList.add("is-visible", tone);
+      }
+    }
+
+    function setDetailsOpen(node, isOpen) {
+      if (!node) {
+        return;
+      }
+      node.open = Boolean(isOpen);
+    }
+
+    function applyWorkerDisclosureDefaults(data) {
+      if (workerDisclosureDefaultsApplied) {
+        return;
+      }
+
+      workerDisclosureDefaultsApplied = true;
+      const isCompact = window.matchMedia("(max-width: 739px)").matches;
+      const hasCalendar = data.calendar.length > 0;
+      const hasRequests = data.requests.items.length > 0;
+
+      setDetailsOpen(elements.workerStatusSection, true);
+      setDetailsOpen(elements.workerHoursSection, true);
+      setDetailsOpen(elements.workerMoneySection, !isCompact);
+      setDetailsOpen(elements.workerCalendarSection, !isCompact && hasCalendar);
+      setDetailsOpen(elements.workerProblemSection, !isCompact && hasRequests);
     }
 
     function getToken() {
@@ -2009,6 +2139,8 @@
 
     function renderWorkerHome(data) {
       setShellCopy("Mein BauClock", data.company.name);
+      applyWorkerDisclosureDefaults(data);
+      setWorkerActionFeedback("");
       elements.workerNameTitle.textContent = data.user.name;
       elements.workerContext.textContent = data.site.name
         ? `${data.company.name} - ${data.site.name}`
@@ -2022,9 +2154,18 @@
         ? `Letzte Buchung: ${formatDateTime(data.status.last_event_at)}`
         : data.status.detail;
 
-      elements.workerScanDetail.textContent = data.site.name
-        ? `Objekt-QR scannen: ${data.site.name}`
-        : "Objekt-QR scannen.";
+      if (supportsTelegramQrScan()) {
+        elements.workerScanDetail.textContent = data.site.name
+          ? `Telegram-Scanner fuer ${data.site.name}.`
+          : "Telegram-Scanner oeffnen.";
+      } else if (isTelegramMiniApp()) {
+        elements.workerScanDetail.textContent = "Scanner hier nicht verfuegbar.";
+      } else {
+        elements.workerScanDetail.textContent = "Nur in Telegram als Scanner verfuegbar.";
+      }
+      elements.workerProblemDetail.textContent = isTelegramMiniApp()
+        ? "Im Bot-Chat weiter melden."
+        : "In Telegram oeffnen zum Melden.";
       elements.workerStatusSummary.textContent = data.status.detail;
       elements.workerStatusValue.textContent = data.status.label;
       elements.workerStatusDetail.textContent = data.status.last_event_at
@@ -2033,11 +2174,17 @@
       elements.workerTodayHours.textContent = formatDuration(data.hours.today_minutes);
       elements.workerBreakHours.textContent = `Pause: ${formatDuration(data.hours.break_minutes)}`;
       elements.workerContractHours.textContent = `${data.hours.contract_hours_week} h`;
+      elements.workerHoursSummary.textContent = `Heute ${formatDuration(data.hours.today_minutes)}`;
       elements.workerTodayMoney.textContent = formatCurrency(data.money.today_estimate);
+      elements.workerMoneySummary.textContent = `Vorlaeufig: ${formatCurrency(data.money.today_estimate)}`;
       elements.workerMoneyDetail.textContent =
         data.money.hourly_rate > 0
-          ? `Stundensatz: ${formatCurrency(data.money.hourly_rate)}`
-          : "Noch kein Stundensatz hinterlegt.";
+          ? `Schaetzung aus gebuchter Zeit. Stundensatz: ${formatCurrency(data.money.hourly_rate)}`
+          : "Keine Schaetzung moeglich, weil kein Stundensatz hinterlegt ist.";
+      elements.workerMoneyEstimateNote.textContent =
+        data.money.hourly_rate > 0
+          ? "Vorlaeufige Schaetzung fuer heute. Die finale Lohnabrechnung kann abweichen."
+          : "Hier wird erst ein Betrag angezeigt, wenn ein Stundensatz hinterlegt ist.";
 
       elements.workerCalendarSummary.textContent =
         data.calendar.length === 1
@@ -2315,10 +2462,12 @@
     function openWorkerScan() {
       const webApp = window.Telegram && window.Telegram.WebApp;
       if (webApp && typeof webApp.showScanQrPopup === "function") {
+        setWorkerActionFeedback("Scanner geoeffnet. Ein Scan zeigt das Objekt; die Arbeitszeit wird nicht im Web gebucht.");
         webApp.showScanQrPopup({ text: "Objekt-QR scannen" }, (scanText) => {
           const siteToken = extractSiteToken(scanText);
           if (!siteToken) {
             setSessionState("QR-Code nicht erkannt", "warning");
+            setWorkerActionFeedback("QR-Code nicht erkannt. Bitte einen BauClock Objekt-QR scannen.", "warning");
             return false;
           }
           if (typeof webApp.closeScanQrPopup === "function") {
@@ -2329,17 +2478,31 @@
         });
         return;
       }
-      setSessionState("Objekt-QR im Telegram-Bot scannen", "warning");
-      if (webApp && typeof webApp.showAlert === "function") {
-        webApp.showAlert("Bitte den Objekt-QR im Telegram-Arbeitsfluss scannen.");
+
+      if (webApp) {
+        setSessionState("Scanner in Telegram nicht verfuegbar", "warning");
+        setWorkerActionFeedback("Diese Telegram-Version stellt keinen QR-Scanner bereit. Bitte den Objekt-QR im Bot-Chat scannen.", "warning");
+        if (typeof webApp.showAlert === "function") {
+          webApp.showAlert("Diese Telegram-Version stellt keinen QR-Scanner bereit. Bitte den Objekt-QR im Bot-Chat scannen.");
+        }
+        return;
       }
+
+      setSessionState("Telegram zum Scannen oeffnen", "warning");
+      setWorkerActionFeedback("Die Web-Ansicht kann keine Arbeitszeit buchen. Bitte BauClock in Telegram oeffnen und dort den Objekt-QR scannen.", "warning");
     }
 
     function openWorkerProblemHint() {
       const webApp = window.Telegram && window.Telegram.WebApp;
       setSessionState("Problem im Telegram-Bot melden", "warning");
+      setWorkerActionFeedback(
+        webApp
+          ? "Bitte das Problem im Bot-Chat melden. So bleibt die Meldung im bestehenden Arbeitsfluss."
+          : "Bitte BauClock in Telegram oeffnen und das Problem dort im Bot-Chat melden.",
+        "warning"
+      );
       if (webApp && typeof webApp.showAlert === "function") {
-        webApp.showAlert("Bitte Problem melden im Telegram-Arbeitsfluss nutzen.");
+        webApp.showAlert("Bitte das Problem im Bot-Chat melden. So bleibt die Meldung im bestehenden Arbeitsfluss.");
       }
     }
 
