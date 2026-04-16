@@ -41,6 +41,7 @@ from bot.utils.access import normalize_phone, normalize_username
 from bot.utils.owner_worker import ensure_company_owner_worker
 from bot.utils.pdf import generate_site_pdf
 from bot.utils.qr import generate_qr_code
+from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_context_only_text
 from db.models import (
     BillingType,
     Company,
@@ -267,6 +268,11 @@ async def cmd_start(
     locale: str,
 ):
     parts = (message.text or "").split(maxsplit=1)
+    if is_platform_identity_on_non_platform_bot(getattr(message.from_user, "username", None)):
+        await state.clear()
+        await message.answer(platform_context_only_text(locale))
+        return
+
     if len(parts) == 2:
         token = parts[1].strip()
         if token.startswith("owner_inv_"):

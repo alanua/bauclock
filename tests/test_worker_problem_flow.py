@@ -100,8 +100,9 @@ class FakeState:
 
 
 class FakeMessage:
-    def __init__(self, text: str | None = None):
+    def __init__(self, text: str | None = None, username: str = "worker"):
         self.text = text
+        self.from_user = SimpleNamespace(id=123456, username=username)
         self.answer = AsyncMock()
 
 
@@ -177,6 +178,23 @@ def test_worker_selects_private_time_action_before_qr_scan():
         assert state.data["pending_event"] == EventType.CHECKIN.value
         assert state.current_state == worker_handler.TimeEventSelectionStates.waiting_for_site_qr
         message.answer.assert_awaited_once()
+
+    asyncio.run(run_test())
+
+
+def test_platform_identity_cannot_accept_worker_invite_on_client_bot(monkeypatch):
+    async def run_test():
+        state = FakeState()
+        message = FakeMessage("/start inv_wrong_bot", username="AnOleksii")
+        redis_stub = SimpleNamespace(get=AsyncMock())
+        monkeypatch.setattr(worker_handler, "redis_client", redis_stub)
+        monkeypatch.setattr(worker_handler, "is_platform_identity_on_non_platform_bot", lambda username: True)
+
+        await worker_handler.cmd_start_invite(message, state, None, None, "de")
+
+        redis_stub.get.assert_not_called()
+        message.answer.assert_awaited_once()
+        assert "@gewerbebot" in message.answer.await_args.args[0]
 
     asyncio.run(run_test())
 

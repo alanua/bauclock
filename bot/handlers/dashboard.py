@@ -9,6 +9,7 @@ from aiogram.types import Message
 from access.legacy_policy import can_access_dashboard
 from bot.config import settings
 from bot.redis_cache import redis_client
+from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_context_only_text
 from db.dashboard_tokens import DASHBOARD_TOKEN_TTL_SECONDS, dashboard_token_key
 from db.models import Worker
 
@@ -18,6 +19,11 @@ router = Router()
 
 @router.message(Command("dashboard"))
 async def cmd_dashboard(message: Message, current_worker: Worker, locale: str):
+    from_user = getattr(message, "from_user", None)
+    if is_platform_identity_on_non_platform_bot(getattr(from_user, "username", None)):
+        await message.answer(platform_context_only_text(locale))
+        return
+
     if not can_access_dashboard(current_worker):
         return
 

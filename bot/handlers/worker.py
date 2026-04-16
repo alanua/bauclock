@@ -36,6 +36,7 @@ from bot.keyboards.worker_kb import (
 )
 from bot.redis_cache import redis_client
 from bot.utils.location import haversine
+from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_context_only_text
 from db.request_service import create_request
 
 router = Router()
@@ -229,6 +230,11 @@ def _event_label(event_type: EventType, locale: str) -> str:
 
 @router.message(Command("start"), F.text.startswith("/start inv_"))
 async def cmd_start_invite(message: Message, state: FSMContext, session: AsyncSession, current_worker: Worker, locale: str):
+    if is_platform_identity_on_non_platform_bot(getattr(message.from_user, "username", None)):
+        await state.clear()
+        await message.answer(platform_context_only_text(locale))
+        return
+
     token = message.text.split(maxsplit=1)[1]
     
     # 1. Verify token in Redis

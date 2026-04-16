@@ -5,6 +5,7 @@ from db.database import SessionLocal
 from db.models import Worker, Company
 from sqlalchemy import select
 from bot.config import settings
+from bot.utils.scope import is_platform_identity_on_non_platform_bot
 
 class DBSessionMiddleware(BaseMiddleware):
     async def __call__(
@@ -34,6 +35,11 @@ class I18nMiddleware(BaseMiddleware):
         tg_user: User = data.get("event_from_user")
         if not tg_user:
             data["locale"] = "de"
+            return await handler(event, data)
+
+        if is_platform_identity_on_non_platform_bot(getattr(tg_user, "username", None)):
+            data["locale"] = "de"
+            data["current_worker"] = None
             return await handler(event, data)
             
         # Try to find a worker to set their locale

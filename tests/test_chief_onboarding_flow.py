@@ -189,6 +189,32 @@ def test_uninvited_user_start_stays_public(monkeypatch):
     asyncio.run(run_test())
 
 
+def test_platform_identity_on_sek_bot_does_not_enter_personal_context(monkeypatch):
+    async def run_test():
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "dedicated_client")
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "SEKbaubot")
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_BOT_USERNAME", "gewerbebot")
+
+        state = FakeState()
+        message = FakeMessage("AnOleksii")
+        current_worker = SimpleNamespace(is_active=True, can_view_dashboard=True)
+
+        await chief_handler.cmd_start(
+            message=message,
+            state=state,
+            session=FakeSession(),
+            current_worker=current_worker,
+            locale="de",
+        )
+
+        assert state.current_state is None
+        assert "@gewerbebot" in message.answer.await_args.args[0]
+        assert "dashboard" not in message.answer.await_args.args[0].casefold()
+
+    asyncio.run(run_test())
+
+
 def test_platform_superadmin_can_create_owner_invite(monkeypatch):
     async def run_test():
         redis_stub = SimpleNamespace(setex=AsyncMock())

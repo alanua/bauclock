@@ -113,6 +113,7 @@ def signed_init_data(
     *,
     auth_date: int | None = None,
     username: str | None = None,
+    bot_token: str | None = None,
 ) -> str:
     user = {"id": user_id, "first_name": "Mini", "last_name": "App"}
     if username:
@@ -123,7 +124,11 @@ def signed_init_data(
         "user": json.dumps(user, separators=(",", ":")),
     }
     data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(params.items()))
-    secret_key = hmac.new(b"WebAppData", os.environ["BOT_TOKEN"].encode(), hashlib.sha256).digest()
+    secret_key = hmac.new(
+        b"WebAppData",
+        (bot_token or os.environ["BOT_TOKEN"]).encode(),
+        hashlib.sha256,
+    ).digest()
     params["hash"] = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
     return urlencode(params)
 
@@ -653,6 +658,8 @@ def test_dashboard_miniapp_bootstrap_allows_platform_superadmin_without_worker_m
     monkeypatch,
 ):
     async def run_test(session):
+        monkeypatch.setattr(settings, "PLATFORM_BOT_TOKEN", "platform-test-token")
+        monkeypatch.setattr(settings, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
         company = await seed_company(session, "platform-superadmin")
         await seed_sek_public_profile(session, company)
         tracked_worker = await seed_worker(
@@ -666,7 +673,11 @@ def test_dashboard_miniapp_bootstrap_allows_platform_superadmin_without_worker_m
 
         monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
         payload = dashboard_router.MiniAppBootstrapRequest(
-            init_data=signed_init_data(345678, username="AnOleksii"),
+            init_data=signed_init_data(
+                345678,
+                username="AnOleksii",
+                bot_token="platform-test-token",
+            ),
         )
 
         bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(
@@ -690,6 +701,82 @@ def test_dashboard_miniapp_bootstrap_allows_platform_superadmin_without_worker_m
         assert data["user"]["role"] == "PLATFORM_SUPERADMIN"
         assert data["workers"][0]["id"] == tracked_worker.id
         assert mapped_worker is None
+
+    run_db_test(run_test)
+
+
+def test_dashboard_miniapp_denies_platform_superadmin_on_dedicated_bot(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(settings, "PLATFORM_BOT_TOKEN", "platform-test-token")
+        monkeypatch.setattr(settings, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+        company = await seed_company(session, "platform-wrong-bot")
+        await seed_sek_public_profile(session, company)
+        await session.commit()
+
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data=signed_init_data(345679, username="AnOleksii"),
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
+
+        assert exc_info.value.status_code == 404
+
+    run_db_test(run_test)
+
+
+def test_worker_home_denies_platform_personal_context_on_dedicated_bot(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(settings, "PLATFORM_BOT_TOKEN", "platform-test-token")
+        monkeypatch.setattr(settings, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+        company = await seed_company(session, "platform-private-wrong-bot")
+        await seed_worker(
+            session,
+            company.id,
+            "platform-private-wrong-bot",
+            can_view_dashboard=False,
+            telegram_id=345680,
+        )
+        await session.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_router.dashboard_worker_home(
+                token=None,
+                telegram_init_data=signed_init_data(345680, username="AnOleksii"),
+                db=session,
+            )
+
+        assert exc_info.value.status_code == 404
+
+    run_db_test(run_test)
+
+
+def test_worker_home_allows_platform_personal_context_on_platform_bot(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(settings, "PLATFORM_BOT_TOKEN", "platform-test-token")
+        monkeypatch.setattr(settings, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+        company = await seed_company(session, "platform-private-right-bot")
+        worker = await seed_worker(
+            session,
+            company.id,
+            "platform-private-right-bot",
+            can_view_dashboard=False,
+            telegram_id=345681,
+        )
+        await session.commit()
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+
+        response = await dashboard_router.dashboard_worker_home(
+            token=None,
+            telegram_init_data=signed_init_data(
+                345681,
+                username="AnOleksii",
+                bot_token="platform-test-token",
+            ),
+            db=session,
+        )
+
+        assert response["user"]["id"] == worker.id
 
     run_db_test(run_test)
 

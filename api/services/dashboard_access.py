@@ -111,7 +111,6 @@ def _configured_miniapp_bots() -> list[MiniAppBotConfig]:
         token=settings.BOT_TOKEN,
         username=settings.BOT_USERNAME,
         role="dedicated_client",
-        allow_platform_superadmin=not bool((platform_token or "").strip()),
         admin_usernames=settings.ADMIN_USERNAMES,
     )
     return configs
@@ -323,15 +322,23 @@ async def get_miniapp_private_worker(
 
     if bot_token is None:
         bot_configs = _configured_miniapp_bots()
+        from api.config import settings
+
+        platform_superadmin_usernames = settings.PLATFORM_SUPERADMIN_USERNAMES
     else:
         bot_configs = [MiniAppBotConfig(token=bot_token, username="", role="explicit")]
+        platform_superadmin_usernames = []
 
-    payload, _matched_bot = _validate_miniapp_init_data(normalized_init_data, bot_configs)
+    payload, matched_bot = _validate_miniapp_init_data(normalized_init_data, bot_configs)
 
     telegram_user = payload["user"]
     telegram_user_id = telegram_user.get("id")
     if telegram_user_id is None:
         raise DashboardAccessError("missing_miniapp_user")
+
+    username = _normalize_username(telegram_user.get("username"))
+    if username and username in platform_superadmin_usernames and matched_bot.role != "platform":
+        raise DashboardAccessError("platform_personal_wrong_bot")
 
     telegram_id_hash = hash_string(str(telegram_user_id))
     worker = (
@@ -371,11 +378,11 @@ async def _get_miniapp_dashboard_worker(
     telegram_id_hash = hash_string(str(telegram_user_id))
     username = _normalize_username(telegram_user.get("username"))
     if username and username in platform_superadmin_usernames:
-        context = await _get_platform_superadmin_context(db, telegram_user=telegram_user)
-        if context and matched_bot.allow_platform_superadmin:
-            return context
-        if context and not matched_bot.allow_platform_superadmin:
+        if not matched_bot.allow_platform_superadmin:
             raise DashboardAccessError("platform_superadmin_wrong_bot")
+        context = await _get_platform_superadmin_context(db, telegram_user=telegram_user)
+        if context:
+            return context
 
     worker = (
         await db.execute(
