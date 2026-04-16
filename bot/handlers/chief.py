@@ -33,6 +33,7 @@ from bot.redis_cache import redis_client
 from bot.states.chief_states import (
     AddSiteStates,
     AddWorkerStates,
+    AssignPartnerSiteTeamStates,
     ChiefRegistrationStates,
     OwnerAlphaOnboardingStates,
     PartnerCompanyInviteStates,
@@ -53,7 +54,7 @@ from db.models import (
     WorkerAccessRole,
     WorkerType,
 )
-from db.security import encrypt_string, hash_string
+from db.security import decrypt_string, encrypt_string, hash_string
 
 router = Router()
 SEK_ALPHA_SITE_NAME = "Consum-Quartier, Steinstraße 22/23 in 14776 Brandenburg"
@@ -186,6 +187,31 @@ async def _get_alpha_sek_site(session: AsyncSession, company_id: int) -> Site | 
             Site.name == SEK_ALPHA_SITE_NAME,
         )
     )
+
+
+def _worker_display_name(worker: Worker) -> str:
+    try:
+        return decrypt_string(worker.full_name_enc)
+    except Exception:
+        return f"Person #{worker.id}"
+
+
+async def _get_active_partner_site(
+    session: AsyncSession,
+    company_id: int,
+) -> tuple[SitePartnerCompany, Site] | None:
+    result = await session.execute(
+        select(SitePartnerCompany, Site)
+        .join(Site, Site.id == SitePartnerCompany.site_id)
+        .where(
+            SitePartnerCompany.company_id == company_id,
+            SitePartnerCompany.role == "subcontractor",
+            SitePartnerCompany.is_active.is_(True),
+            Site.is_active.is_(True),
+        )
+        .order_by(SitePartnerCompany.id)
+    )
+    return result.first()
 
 
 async def _send_site_qr(message: Message, company: Company, site: Site, locale: str) -> None:
@@ -658,6 +684,166 @@ async def cmd_invite_subcontractor_company(
 ):
     await state.clear()
     await _create_subcontractor_company_invite(message, current_worker, session, locale)
+
+
+@router.message(Command("assign_site_team"))
+async def cmd_assign_partner_site_team(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    await state.clear()
+    if not bot_config.is_platform_bot:
+        platform_bot_username = bot_config.PLATFORM_BOT_USERNAME.lstrip("@")
+        await message.answer(
+            f"Bitte Team-Zuweisung in @{platform_bot_username} oeffnen."
+            if locale == "de"
+            else f"Please open team assignment in @{platform_bot_username}."
+        )
+        return
+    if not current_worker or not can_access_dashboard(current_worker):
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    partner_site = await _get_active_partner_site(session, current_worker.company_id)
+    if not partner_site:
+        await message.answer(
+            "Noch keine beigetretene SEK-Baustelle gefunden."
+            if locale == "de"
+            else "No joined SEK site found yet."
+        )
+        return
+
+    _partnership, site = partner_site
+    workers = (
+        await session.execute(
+            select(Worker)
+            .where(
+                Worker.company_id == current_worker.company_id,
+                Worker.is_active.is_(True),
+            )
+            .order_by(Worker.id)
+        )
+    ).scalars().all()
+    if not workers:
+        await message.answer("Keine aktiven Personen gefunden." if locale == "de" else "No active people found.")
+        return
+
+    lines = [
+        f"Baustelle: {site.name}",
+        "",
+        "Welche Personen sollen dort arbeiten?",
+    ]
+    if locale != "de":
+        lines = [
+            f"Site: {site.name}",
+            "",
+            "Which people should work there?",
+        ]
+    for index, worker in enumerate(workers, start=1):
+        suffix = " (Sie)" if worker.id == current_worker.id and locale == "de" else ""
+        if worker.id == current_worker.id and locale != "de":
+            suffix = " (you)"
+        lines.append(f"{index}. {_worker_display_name(worker)}{suffix}")
+    lines.extend([
+        "",
+        "Antwort: Nummern senden, z.B. 1 2, oder all fuer alle.",
+    ] if locale == "de" else [
+        "",
+        "Reply with numbers, e.g. 1 2, or all for everyone.",
+    ])
+    await state.update_data(
+        assign_partner_site_id=site.id,
+        assign_partner_worker_ids=[worker.id for worker in workers],
+    )
+    await message.answer("\n".join(lines))
+    await state.set_state(AssignPartnerSiteTeamStates.waiting_for_selection)
+
+
+@router.message(AssignPartnerSiteTeamStates.waiting_for_selection)
+async def process_assign_partner_site_team_selection(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    if not bot_config.is_platform_bot or not current_worker or not can_access_dashboard(current_worker):
+        await state.clear()
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    data = await state.get_data()
+    site_id = data.get("assign_partner_site_id")
+    worker_ids = list(data.get("assign_partner_worker_ids") or [])
+    site = await session.get(Site, site_id)
+    if not site or not worker_ids:
+        await state.clear()
+        await message.answer(
+            "Zuweisung ist nicht mehr bereit. Bitte erneut starten."
+            if locale == "de"
+            else "Assignment is no longer ready. Please start again."
+        )
+        return
+
+    raw = (message.text or "").strip().lower()
+    if raw in {"/cancel", "cancel", "abbrechen"}:
+        await state.clear()
+        await message.answer("Zuweisung abgebrochen." if locale == "de" else "Assignment cancelled.")
+        return
+
+    if raw in {"all", "alle"}:
+        selected_ids = set(worker_ids)
+    else:
+        selected_indexes: set[int] = set()
+        for part in re.split(r"[\s,;]+", raw):
+            if not part:
+                continue
+            if not part.isdigit():
+                selected_indexes = set()
+                break
+            selected_indexes.add(int(part))
+        selected_ids = {
+            worker_ids[index - 1]
+            for index in selected_indexes
+            if 1 <= index <= len(worker_ids)
+        }
+
+    if not selected_ids:
+        await message.answer(
+            "Bitte gueltige Nummern senden, z.B. 1 2, oder all."
+            if locale == "de"
+            else "Please send valid numbers, e.g. 1 2, or all."
+        )
+        return
+
+    workers = (
+        await session.execute(
+            select(Worker).where(
+                Worker.company_id == current_worker.company_id,
+                Worker.id.in_(selected_ids),
+                Worker.is_active.is_(True),
+            )
+        )
+    ).scalars().all()
+    for worker in workers:
+        worker.site_id = site.id
+        session.add(worker)
+    await session.commit()
+    await state.clear()
+
+    names = ", ".join(_worker_display_name(worker) for worker in workers)
+    await message.answer(
+        f"Zugewiesen: {names}\n\n"
+        "Diese Personen bleiben in Ihrem Gewerbe und nutzen den bestehenden SEK-Baustellen-QR."
+        if locale == "de"
+        else (
+            f"Assigned: {names}\n\n"
+            "These people remain in your company and use the existing SEK site QR."
+        )
+    )
 
 
 @router.message(PlatformOwnerInviteStates.waiting_for_company_name)

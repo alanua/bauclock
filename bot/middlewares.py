@@ -5,7 +5,7 @@ from db.database import SessionLocal
 from db.models import Worker, Company
 from sqlalchemy import select
 from bot.config import settings
-from bot.utils.scope import is_platform_identity_on_non_platform_bot
+from bot.utils.scope import is_platform_identity_on_non_platform_bot, is_platform_identity_username
 
 class DBSessionMiddleware(BaseMiddleware):
     async def __call__(
@@ -47,9 +47,24 @@ class I18nMiddleware(BaseMiddleware):
         from db.security import hash_string
         tg_hash = hash_string(str(tg_user.id))
         
-        stmt = select(Worker).where(Worker.telegram_id_hash == tg_hash)
+        stmt = select(Worker, Company.name).join(Company).where(Worker.telegram_id_hash == tg_hash)
         result = await session.execute(stmt)
-        worker = result.scalar_one_or_none()
+        rows = result.all()
+        worker = None
+        if rows:
+            if settings.is_platform_bot and is_platform_identity_username(getattr(tg_user, "username", None)):
+                worker = next(
+                    (
+                        row_worker
+                        for row_worker, company_name in rows
+                        if row_worker.is_active
+                        and row_worker.can_view_dashboard
+                        and company_name != "Generalbau S.E.K. GmbH"
+                    ),
+                    None,
+                )
+            if worker is None:
+                worker = next((row_worker for row_worker, _company_name in rows if row_worker.is_active), rows[0][0])
         
         if worker and worker.language:
             data["locale"] = worker.language.value

@@ -764,3 +764,104 @@ def test_platform_owner_accepts_partner_invite_with_existing_own_company(monkeyp
         assert "AOV Gewerbe" in message.answer.await_args.args[0]
 
     run_db_test(run_test)
+
+
+def test_gewerbe_owner_assigns_own_people_to_joined_sek_site(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "platform")
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "gewerbebot")
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_BOT_USERNAME", "gewerbebot")
+        monkeypatch.setattr(chief_handler, "decrypt_string", lambda value: value)
+
+        sek_company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="sek_owner_enc",
+            owner_telegram_id_hash="sek_owner_hash",
+        )
+        own_company = Company(
+            name="AOV Gewerbe",
+            owner_telegram_id_enc="own_enc",
+            owner_telegram_id_hash=hash_string("123456"),
+        )
+        session.add_all([sek_company, own_company])
+        await session.flush()
+        site = Site(
+            company_id=sek_company.id,
+            name=chief_handler.SEK_ALPHA_SITE_NAME,
+            qr_token="site_alpha",
+            is_active=True,
+        )
+        session.add(site)
+        await session.flush()
+        owner = Worker(
+            company_id=own_company.id,
+            telegram_id_enc="owner_enc",
+            telegram_id_hash=hash_string("123456"),
+            full_name_enc="Owner Name",
+            worker_type=WorkerType.GEWERBE,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            is_active=True,
+        )
+        helper = Worker(
+            company_id=own_company.id,
+            telegram_id_enc="helper_enc",
+            telegram_id_hash="helper_hash",
+            full_name_enc="Helper Name",
+            worker_type=WorkerType.GEWERBE,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.WORKER.value,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            is_active=True,
+        )
+        session.add_all([owner, helper])
+        await session.flush()
+        session.add(
+            SitePartnerCompany(
+                site_id=site.id,
+                company_id=own_company.id,
+                role="subcontractor",
+                accepted_by_worker_id=owner.id,
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+        state = FakeState()
+        message = FakeMessage("AnOleksii")
+        message.text = "/assign_site_team"
+
+        await chief_handler.cmd_assign_partner_site_team(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        assert state.current_state == chief_handler.AssignPartnerSiteTeamStates.waiting_for_selection
+        assert "Owner Name (Sie)" in message.answer.await_args.args[0]
+        assert "Helper Name" in message.answer.await_args.args[0]
+
+        message.text = "1 2"
+        await chief_handler.process_assign_partner_site_team_selection(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        await session.refresh(owner)
+        await session.refresh(helper)
+        assert owner.site_id == site.id
+        assert helper.site_id == site.id
+        assert owner.company_id == own_company.id
+        assert helper.company_id == own_company.id
+        assert state.current_state is None
+        assert "bestehenden SEK-Baustellen-QR" in message.answer.await_args.args[0]
+
+    run_db_test(run_test)
