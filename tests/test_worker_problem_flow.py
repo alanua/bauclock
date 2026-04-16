@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from db.models import Base, BillingType, Company, EventType, Request, Site, Worker, WorkerAccessRole, WorkerType
+from db.models import Base, BillingType, Company, EventType, Request, Site, SitePartnerCompany, TimeEvent, Worker, WorkerAccessRole, WorkerType
 
 
 class Filter:
@@ -233,6 +233,72 @@ def test_direct_site_qr_scan_without_pending_action_returns_public_info():
         assert "Zufahrt ueber Tor 2." in answer_text
         assert "Standort" not in answer_text
         assert "Zeiterfassung" not in answer_text
+
+    run_db_test(run_test)
+
+
+def test_joined_gewerbe_worker_can_use_existing_sek_qr_for_checkin():
+    async def run_test(session):
+        sek_company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="sek_owner_enc",
+            owner_telegram_id_hash="sek_owner_hash",
+        )
+        partner_company = Company(
+            name="AOV Gewerbe",
+            owner_telegram_id_enc="partner_owner_enc",
+            owner_telegram_id_hash="partner_owner_hash",
+        )
+        session.add_all([sek_company, partner_company])
+        await session.flush()
+        site = Site(
+            company_id=sek_company.id,
+            name="Consum-Quartier",
+            qr_token="site_shared",
+            is_active=True,
+        )
+        session.add(site)
+        await session.flush()
+        worker = Worker(
+            company_id=partner_company.id,
+            site_id=site.id,
+            telegram_id_enc="worker_enc",
+            telegram_id_hash="worker_hash",
+            full_name_enc="Partner Worker",
+            worker_type=WorkerType.GEWERBE,
+            billing_type=BillingType.HOURLY,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            is_active=True,
+        )
+        session.add(worker)
+        await session.flush()
+        session.add(
+            SitePartnerCompany(
+                site_id=site.id,
+                company_id=partner_company.id,
+                role="subcontractor",
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+        state = FakeState()
+        await state.update_data(pending_event=EventType.CHECKIN.value)
+        message = FakeMessage("/start site_shared")
+
+        await worker_handler.cmd_start_site(message, state, session, worker, "de")
+
+        assert state.data["site_id"] == site.id
+        assert "Standort" in message.answer.await_args.args[0]
+
+        message.location = SimpleNamespace(latitude=52.0, longitude=13.0, horizontal_accuracy=5)
+        await worker_handler.process_location(message, state, session, worker, "de")
+
+        event = (await session.execute(select(TimeEvent))).scalar_one()
+        assert event.worker_id == worker.id
+        assert event.site_id == site.id
+        assert worker.company_id == partner_company.id
 
     run_db_test(run_test)
 

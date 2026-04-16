@@ -91,6 +91,7 @@ from db.models import (
     Request,
     RequestStatus,
     Site,
+    SitePartnerCompany,
     TimeEvent,
     Worker,
     WorkerAccessRole,
@@ -501,6 +502,109 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
         assert workers_by_name["name_enc_management-home-waiting"]["today_status"] == "not_started"
         assert workers_by_name["name_enc_management-home-working"]["today_work_minutes"] > 0
         assert workers_by_name["name_enc_management-home-break"]["today_break_minutes"] > 0
+
+    run_db_test(run_test)
+
+
+def test_sek_dashboard_groups_partner_company_without_money_leak(monkeypatch):
+    async def run_test(session):
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return date(2026, 1, 15)
+
+        class FixedDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 1, 15, 12, 0, tzinfo=tz)
+
+        monkeypatch.setattr(dashboard_router, "date", FixedDate)
+        monkeypatch.setattr(dashboard_router, "datetime", FixedDatetime)
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+
+        sek_company = await seed_company(session, "sek-gc")
+        site = await seed_site(session, sek_company.id, "shared-site")
+        sek_owner = await seed_worker(
+            session,
+            sek_company.id,
+            "sek-owner",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            telegram_id=910001,
+            access_role=WorkerAccessRole.COMPANY_OWNER,
+        )
+        sek_worker = await seed_worker(session, sek_company.id, "sek-worker")
+
+        partner_company = await seed_company(session, "partner-gewerbe")
+        partner_owner = await seed_worker(
+            session,
+            partner_company.id,
+            "partner-owner",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            telegram_id=920001,
+            access_role=WorkerAccessRole.COMPANY_OWNER,
+        )
+        partner_worker = await seed_worker(session, partner_company.id, "partner-worker")
+        partner_worker.site_id = site.id
+        session.add(
+            SitePartnerCompany(
+                site_id=site.id,
+                company_id=partner_company.id,
+                role="subcontractor",
+                accepted_by_worker_id=partner_owner.id,
+                is_active=True,
+            )
+        )
+        timestamp = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)
+        session.add_all(
+            [
+                TimeEvent(
+                    worker_id=partner_worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+                Payment(
+                    worker_id=partner_worker.id,
+                    period_start=timestamp,
+                    period_end=timestamp.replace(hour=12),
+                    hours_paid=4,
+                    amount_paid=999,
+                    status=PaymentStatus.PENDING,
+                    payment_type="CONTRACT",
+                ),
+            ]
+        )
+        await session.commit()
+
+        sek_response = await dashboard_router.dashboard_data(
+            token=None,
+            telegram_init_data=signed_init_data(910001),
+            db=session,
+        )
+        partner_groups = sek_response["management_home"]["partners"]["groups"]
+        partner_person = partner_groups[0]["people"][0]
+
+        assert [worker["id"] for worker in sek_response["workers"]] == [sek_worker.id]
+        assert sek_response["management_home"]["finance"]["pending_amount"] == 0
+        assert partner_groups[0]["company_name"] == partner_company.name
+        assert partner_groups[0]["site_id"] == site.id
+        assert partner_person["id"] == partner_worker.id
+        assert partner_person["present_today"] is True
+        assert partner_person["today_work_minutes"] > 0
+        assert "rate" not in partner_person
+        assert "contract_hours_week" not in partner_person
+
+        partner_response = await dashboard_router.dashboard_data(
+            token=None,
+            telegram_init_data=signed_init_data(920001),
+            db=session,
+        )
+        partner_worker_ids = [worker["id"] for worker in partner_response["workers"]]
+        assert partner_worker_ids == [partner_worker.id]
+        assert partner_response["management_home"]["partners"]["groups"] == []
+        assert sek_worker.id not in partner_worker_ids
 
     run_db_test(run_test)
 

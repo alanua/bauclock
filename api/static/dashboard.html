@@ -927,6 +927,58 @@
       gap: 10px;
     }
 
+    .partner-group-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .partner-group-card {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 253, 248, 0.9);
+      box-shadow: var(--worker-shadow-card);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .partner-group-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .partner-group-title {
+      font-size: 16px;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+
+    .partner-group-site,
+    .partner-person-meta {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .partner-person-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding-top: 10px;
+      border-top: 1px solid rgba(58, 76, 67, 0.1);
+    }
+
+    .partner-person-name {
+      font-size: 14px;
+      font-weight: 850;
+      line-height: 1.25;
+    }
+
     .management-entry-card {
       width: 100%;
       min-height: 72px;
@@ -1908,14 +1960,15 @@
                 <article class="management-mini-card">
                   <p class="management-mini-label">Subunternehmer</p>
                   <p id="managementSubcontractorCount" class="management-kpi-value">0</p>
-                  <p class="management-mini-note">Worker-Type SUBUNTERNEHMER.</p>
+                  <p class="management-mini-note">Partner-Personen auf SEK-Baustellen.</p>
                 </article>
                 <article class="management-mini-card">
                   <p class="management-mini-label">Gewerbe</p>
                   <p id="managementTradeCount" class="management-kpi-value">0</p>
-                  <p class="management-mini-note">Worker-Type GEWERBE.</p>
+                  <p class="management-mini-note">Verbundene Partnerfirmen.</p>
                 </article>
               </div>
+              <div id="managementPartnerGroups" class="partner-group-list"></div>
             </div>
           </details>
 
@@ -2134,6 +2187,7 @@
       managementOvertimeHours: document.getElementById("managementOvertimeHours"),
       managementSubcontractorCount: document.getElementById("managementSubcontractorCount"),
       managementTradeCount: document.getElementById("managementTradeCount"),
+      managementPartnerGroups: document.getElementById("managementPartnerGroups"),
       managementPeopleEntryNote: document.getElementById("managementPeopleEntryNote"),
       managementSitesEntryNote: document.getElementById("managementSitesEntryNote"),
       managementCalendarEntryNote: document.getElementById("managementCalendarEntryNote"),
@@ -2589,6 +2643,31 @@
             subcontractor_workers: Number(partners.subcontractor_workers || 0),
             trade_workers: Number(partners.trade_workers || 0),
             total_partner_workers: Number(partners.total_partner_workers || 0),
+            subcontractor_companies: Number(partners.subcontractor_companies || 0),
+            partner_people: Number(partners.partner_people || 0),
+            partner_present: Number(partners.partner_present || 0),
+            partner_work_minutes: Number(partners.partner_work_minutes || 0),
+            groups: Array.isArray(partners.groups)
+              ? partners.groups.map((group) => ({
+                  company_id: Number(group.company_id || 0),
+                  company_name: String(group.company_name || "Partnerfirma"),
+                  site_id: Number(group.site_id || 0),
+                  site_name: String(group.site_name || ""),
+                  present_today: Number(group.present_today || 0),
+                  today_work_minutes: Number(group.today_work_minutes || 0),
+                  people: Array.isArray(group.people)
+                    ? group.people.map((person) => ({
+                        id: Number(person.id || 0),
+                        name: String(person.name || "Person"),
+                        present_today: Boolean(person.present_today),
+                        today_status: String(person.today_status || "not_started"),
+                        today_status_label: String(person.today_status_label || "Nicht gestartet"),
+                        today_work_minutes: Number(person.today_work_minutes || 0),
+                        today_break_minutes: Number(person.today_break_minutes || 0),
+                      }))
+                    : [],
+                }))
+              : [],
           },
           quick_entries: {
             people: Number(quickEntries.people || 0),
@@ -2767,7 +2846,7 @@
       elements.managementFinanceSummary.textContent =
         `${formatCurrency(finance.pending_amount)} offen`;
       elements.managementPartnersSummary.textContent =
-        `${partners.total_partner_workers} Partner/Gewerbe`;
+        `${partners.subcontractor_companies} Firmen, ${partners.partner_present} anwesend`;
       elements.managementEntrySummary.textContent =
         `${quickEntries.people} People, ${quickEntries.sites} Sites`;
       elements.managementOpsNotCheckedIn.textContent = String(operations.not_checked_in);
@@ -2775,8 +2854,8 @@
       elements.managementPendingAmount.textContent = formatCurrency(finance.pending_amount);
       elements.managementConfirmedAmount.textContent = formatCurrency(finance.confirmed_amount);
       elements.managementOvertimeHours.textContent = `${finance.pending_overtime_hours} h`;
-      elements.managementSubcontractorCount.textContent = String(partners.subcontractor_workers);
-      elements.managementTradeCount.textContent = String(partners.trade_workers);
+      elements.managementSubcontractorCount.textContent = String(partners.partner_people);
+      elements.managementTradeCount.textContent = String(partners.subcontractor_companies);
       elements.managementPeopleEntryNote.textContent =
         quickEntries.people === 1 ? "1 Person in der Liste." : `${quickEntries.people} Personen in der Liste.`;
       elements.managementSitesEntryNote.textContent =
@@ -2800,8 +2879,50 @@
           ? `${total} aktive Mitarbeiter sind im Dashboard hinterlegt.`
           : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Gesamtzahl.";
 
+      renderPartnerGroups(partners.groups);
       applyManagementRoleVisibility(data);
       applyManagementDisclosureDefaults(data);
+    }
+
+    function renderPartnerGroups(groups) {
+      if (!elements.managementPartnerGroups) {
+        return;
+      }
+      if (!groups || groups.length === 0) {
+        elements.managementPartnerGroups.innerHTML = `
+          <article class="partner-group-card">
+            <p class="management-mini-label">Partnerfirmen</p>
+            <p class="management-mini-note">Noch keine verbundene Gewerbe-Firma auf einer SEK-Baustelle.</p>
+          </article>
+        `;
+        return;
+      }
+
+      elements.managementPartnerGroups.innerHTML = groups.map((group) => {
+        const people = group.people && group.people.length > 0
+          ? group.people.map((person) => `
+              <div class="partner-person-row">
+                <div>
+                  <div class="partner-person-name">${escapeHtml(person.name)}</div>
+                  <div class="partner-person-meta">${escapeHtml(person.today_status_label)} &middot; ${formatDuration(person.today_work_minutes)}</div>
+                </div>
+                <span class="status-badge ${escapeHtml(person.today_status)}">${person.present_today ? "Da" : "Offen"}</span>
+              </div>
+            `).join("")
+          : `<p class="management-mini-note">Noch keine zugewiesenen Personen.</p>`;
+        return `
+          <article class="partner-group-card">
+            <div class="partner-group-head">
+              <div>
+                <div class="partner-group-title">${escapeHtml(group.company_name)}</div>
+                <div class="partner-group-site">${escapeHtml(group.site_name || "SEK-Baustelle")}</div>
+              </div>
+              <span class="role-pill">${group.present_today}/${group.people.length}</span>
+            </div>
+            ${people}
+          </article>
+        `;
+      }).join("");
     }
 
     function openManagementSection(section) {

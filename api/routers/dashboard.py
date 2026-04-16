@@ -25,7 +25,7 @@ from api.services.dashboard_access import (
 )
 from db.calendar_service import list_worker_calendar_events
 from db.database import get_db
-from db.models import CalendarEvent, Company, EventType, Payment, Request, RequestStatus, Site, TimeEvent, Worker
+from db.models import CalendarEvent, Company, EventType, Payment, Request, RequestStatus, Site, SitePartnerCompany, TimeEvent, Worker
 from db.request_service import (
     RequestAccessError,
     create_request,
@@ -477,6 +477,102 @@ def _serialize_management_workers(
     return serialized_workers
 
 
+async def _serialize_partner_groups(
+    db: AsyncSession,
+    *,
+    context: DashboardContext,
+    today: date,
+    now: datetime,
+) -> tuple[list[dict[str, object]], dict[str, int]]:
+    rows = (
+        await db.execute(
+            select(SitePartnerCompany, Site, Company)
+            .join(Site, Site.id == SitePartnerCompany.site_id)
+            .join(Company, Company.id == SitePartnerCompany.company_id)
+            .where(
+                Site.company_id == context.company_id,
+                Site.is_active.is_(True),
+                SitePartnerCompany.role == "subcontractor",
+                SitePartnerCompany.is_active.is_(True),
+            )
+            .order_by(Company.name, Site.name)
+        )
+    ).all()
+
+    groups: list[dict[str, object]] = []
+    totals = {
+        "companies": 0,
+        "people": 0,
+        "present": 0,
+        "work_minutes": 0,
+    }
+    for _partnership, site, company in rows:
+        partner_workers = (
+            await db.execute(
+                select(Worker)
+                .where(
+                    Worker.company_id == company.id,
+                    Worker.site_id == site.id,
+                    Worker.is_active.is_(True),
+                    Worker.time_tracking_enabled.is_(True),
+                )
+                .order_by(Worker.id)
+            )
+        ).scalars().all()
+        worker_ids = [worker.id for worker in partner_workers]
+        events_by_worker: dict[int, list[TimeEvent]] = {}
+        if worker_ids:
+            events = (
+                await db.execute(
+                    select(TimeEvent)
+                    .where(
+                        TimeEvent.worker_id.in_(worker_ids),
+                        TimeEvent.site_id == site.id,
+                        func.date(TimeEvent.timestamp) == today,
+                    )
+                    .order_by(TimeEvent.timestamp.asc())
+                )
+            ).scalars().all()
+            for event in events:
+                events_by_worker.setdefault(event.worker_id, []).append(event)
+
+        people = []
+        for worker in partner_workers:
+            worker_events = events_by_worker.get(worker.id, [])
+            status = _worker_status(worker_events)
+            minutes = _calculate_day_minutes(worker_events, now)
+            present_today = bool(worker_events)
+            totals["people"] += 1
+            totals["present"] += 1 if present_today else 0
+            totals["work_minutes"] += int(minutes["work_minutes"])
+            people.append(
+                {
+                    "id": worker.id,
+                    "name": decrypt_string(worker.full_name_enc),
+                    "present_today": present_today,
+                    "today_status": _status_badge_class(str(status["key"])),
+                    "today_status_label": status["label"],
+                    "today_work_minutes": minutes["work_minutes"],
+                    "today_break_minutes": minutes["break_minutes"],
+                }
+            )
+
+        totals["companies"] += 1
+        groups.append(
+            {
+                "company_id": company.id,
+                "company_name": company.name,
+                "site_id": site.id,
+                "site_name": site.name,
+                "people": people,
+                "present_today": sum(1 for person in people if person["present_today"]),
+                "today_work_minutes": sum(int(person["today_work_minutes"]) for person in people),
+            }
+        )
+
+    return groups, totals
+
+
 async def _serialize_management_home(
     db: AsyncSession,
     *,
@@ -487,6 +583,13 @@ async def _serialize_management_home(
     access_role = _management_access_role(context)
     today_events = await _get_company_today_events(db, company_id=context.company_id, today=today)
     today_status = _management_today_status(workers, today_events)
+    now = datetime.now(timezone.utc)
+    partner_groups, partner_totals = await _serialize_partner_groups(
+        db,
+        context=context,
+        today=today,
+        now=now,
+    )
 
     open_request_count = await db.scalar(
         select(func.count(Request.id)).where(
@@ -571,6 +674,11 @@ async def _serialize_management_home(
             "subcontractor_workers": len(subcontractor_workers),
             "trade_workers": len(trade_workers),
             "total_partner_workers": len(subcontractor_workers) + len(trade_workers),
+            "subcontractor_companies": partner_totals["companies"],
+            "partner_people": partner_totals["people"],
+            "partner_present": partner_totals["present"],
+            "partner_work_minutes": partner_totals["work_minutes"],
+            "groups": partner_groups,
         },
         "quick_entries": {
             "people": len(workers),
