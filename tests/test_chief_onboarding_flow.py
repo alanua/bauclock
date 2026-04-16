@@ -93,7 +93,7 @@ def install_import_stubs() -> None:
 install_import_stubs()
 
 from bot.handlers import chief as chief_handler
-from db.models import Base, Company, CompanyPublicProfile, Site, Worker, WorkerAccessRole
+from db.models import Base, BillingType, Company, CompanyPublicProfile, Site, Worker, WorkerAccessRole, WorkerType
 
 
 class FakeState:
@@ -512,5 +512,73 @@ def test_owner_add_site_creates_site_with_alpha_role(monkeypatch):
         assert site.description == "Rolle: Generalunternehmer (Alpha)"
         assert site.qr_token.startswith("site_")
         send_qr.assert_awaited_once()
+
+    run_db_test(run_test)
+
+
+def test_sek_owner_can_create_site_specific_subcontractor_company_invite(monkeypatch):
+    async def run_test(session):
+        redis_stub = SimpleNamespace(setex=AsyncMock())
+        monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "dedicated_client")
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "SEKbaubot")
+        monkeypatch.setattr(chief_handler.bot_config, "DEDICATED_CLIENT_BOT_USERNAME", "SEKbaubot")
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_BOT_USERNAME", "gewerbebot")
+
+        company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        session.add(company)
+        await session.flush()
+        site = Site(
+            company_id=company.id,
+            name=chief_handler.SEK_ALPHA_SITE_NAME,
+            qr_token="site_alpha",
+            is_active=True,
+        )
+        owner = Worker(
+            company_id=company.id,
+            telegram_id_enc="owner_enc",
+            telegram_id_hash="owner_hash",
+            full_name_enc="owner_name",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            is_active=True,
+        )
+        session.add_all([site, owner])
+        await session.flush()
+
+        state = FakeState()
+        message = FakeMessage("sek_owner")
+        message.text = "/invite_subcontractor"
+
+        await chief_handler.cmd_invite_subcontractor_company(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        redis_stub.setex.assert_awaited_once()
+        token, ttl, raw_payload = redis_stub.setex.await_args.args
+        payload = json.loads(raw_payload)
+        assert token.startswith("partner_inv_")
+        assert ttl == chief_handler.PARTNER_COMPANY_INVITE_TTL_SECONDS
+        assert payload["invite_type"] == "subcontractor_company_site"
+        assert payload["general_contractor_company_id"] == company.id
+        assert payload["site_id"] == site.id
+        assert payload["site_name"] == chief_handler.SEK_ALPHA_SITE_NAME
+        assert payload["relationship_role"] == "subcontractor"
+        assert payload["target_bot_role"] == "platform"
+        assert payload["target_bot_username"] == "gewerbebot"
+        assert "gewerbebot" in message.answer.await_args.args[0]
+        assert chief_handler.SEK_ALPHA_SITE_NAME in message.answer.await_args.args[0]
+        assert state.current_state is None
 
     run_db_test(run_test)

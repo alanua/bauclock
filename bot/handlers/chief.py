@@ -54,6 +54,8 @@ from db.models import (
 from db.security import encrypt_string, hash_string
 
 router = Router()
+SEK_ALPHA_SITE_NAME = "Consum-Quartier, Steinstraße 22/23 in 14776 Brandenburg"
+PARTNER_COMPANY_INVITE_TTL_SECONDS = 86400 * 7
 
 
 def _as_text(value) -> str:
@@ -174,6 +176,16 @@ def _safe_filename(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_") or "bauclock"
 
 
+async def _get_alpha_sek_site(session: AsyncSession, company_id: int) -> Site | None:
+    return await session.scalar(
+        select(Site).where(
+            Site.company_id == company_id,
+            Site.is_active.is_(True),
+            Site.name == SEK_ALPHA_SITE_NAME,
+        )
+    )
+
+
 async def _send_site_qr(message: Message, company: Company, site: Site, locale: str) -> None:
     bot_info = await message.bot.get_me()
     bot_username = getattr(bot_info, "username", None) or bot_config.BOT_USERNAME
@@ -221,6 +233,68 @@ async def _create_owner_invite(message: Message, company_name: str, locale: str)
         "Gueltig: 7 Tage. Der Link ist einmalig fuer den ersten Company Owner."
         if locale == "de"
         else f"Owner invite for {safe_company_name} created.\n\n{safe_invite_link}\n\nValid: 7 days."
+    )
+    await message.answer(text)
+
+
+async def _create_subcontractor_company_invite(
+    message: Message,
+    current_worker: Worker | None,
+    session: AsyncSession,
+    locale: str,
+) -> None:
+    if not current_worker or not can_access_dashboard(current_worker):
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+    if not _is_dedicated_client_bot():
+        dedicated_bot_username = bot_config.DEDICATED_CLIENT_BOT_USERNAME.lstrip("@")
+        await message.answer(
+            f"Bitte diese Einladung in @{dedicated_bot_username} erstellen."
+            if locale == "de"
+            else f"Please create this invite in @{dedicated_bot_username}."
+        )
+        return
+
+    site = await _get_alpha_sek_site(session, current_worker.company_id)
+    if not site:
+        await message.answer(
+            "Die Alpha-Baustelle wurde nicht gefunden. Bitte zuerst die SEK-Baustelle pruefen."
+            if locale == "de"
+            else "The alpha site was not found. Please check the SEK site first."
+        )
+        return
+
+    token = f"partner_inv_{uuid.uuid4().hex[:24]}"
+    platform_bot_username = bot_config.PLATFORM_BOT_USERNAME.lstrip("@")
+    invite_data = {
+        "invite_type": "subcontractor_company_site",
+        "general_contractor_company_id": current_worker.company_id,
+        "site_id": site.id,
+        "site_name": site.name,
+        "relationship_role": "subcontractor",
+        "target_bot_role": "platform",
+        "target_bot_username": platform_bot_username,
+        "created_by_worker_id": current_worker.id,
+    }
+    await redis_client.setex(token, PARTNER_COMPANY_INVITE_TTL_SECONDS, json.dumps(invite_data))
+
+    invite_link = f"https://t.me/{platform_bot_username}?start={token}"
+    safe_site_name = escape(site.name)
+    safe_invite_link = escape(invite_link)
+    text = (
+        "Subunternehmer-Firmeneinladung erstellt.\n\n"
+        f"Baustelle: {safe_site_name}\n"
+        "Rolle: Subunternehmer\n\n"
+        f"{safe_invite_link}\n\n"
+        "Gueltig: 7 Tage. Der Link ist fuer den Beitritt einer Firma zu dieser Baustelle."
+        if locale == "de"
+        else (
+            "Subcontractor company invite created.\n\n"
+            f"Site: {safe_site_name}\n"
+            "Role: subcontractor\n\n"
+            f"{safe_invite_link}\n\n"
+            "Valid: 7 days. This link joins one company to this site."
+        )
     )
     await message.answer(text)
 
@@ -390,6 +464,18 @@ async def cmd_owner_invite(message: Message, state: FSMContext, locale: str):
         else "Which company should receive the first owner invite?"
     )
     await state.set_state(PlatformOwnerInviteStates.waiting_for_company_name)
+
+
+@router.message(Command("invite_subcontractor"))
+async def cmd_invite_subcontractor_company(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    await state.clear()
+    await _create_subcontractor_company_invite(message, current_worker, session, locale)
 
 
 @router.message(PlatformOwnerInviteStates.waiting_for_company_name)
