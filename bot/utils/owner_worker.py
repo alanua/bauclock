@@ -34,6 +34,9 @@ async def ensure_company_owner_worker(
         if existing_worker.created_by is not None:
             existing_worker.created_by = None
             updated = True
+        if existing_worker.time_tracking_enabled:
+            existing_worker.time_tracking_enabled = False
+            updated = True
         if updated:
             session.add(existing_worker)
             await session.commit()
@@ -48,7 +51,7 @@ async def ensure_company_owner_worker(
         billing_type=BillingType.HOURLY,
         access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
-        time_tracking_enabled=True,
+        time_tracking_enabled=False,
         is_active=True,
         created_by=None,
     )

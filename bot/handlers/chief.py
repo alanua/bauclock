@@ -81,6 +81,33 @@ def _is_shared_client_bot() -> bool:
     )
 
 
+def _is_dedicated_client_bot() -> bool:
+    current_bot = normalize_username(bot_config.BOT_USERNAME)
+    dedicated_bot = normalize_username(bot_config.DEDICATED_CLIENT_BOT_USERNAME)
+    return bot_config.BOT_ROLE == "dedicated_client" or (
+        bool(current_bot) and current_bot == dedicated_bot
+    )
+
+
+def _is_sek_company_name(company_name: str) -> bool:
+    compact = re.sub(r"[^a-z0-9]+", "", (company_name or "").casefold())
+    return compact in {"sek", "sekgmbh"} or compact.startswith("sek") or "generalbausek" in compact
+
+
+def _owner_invite_target(company_name: str) -> tuple[str, str]:
+    if _is_sek_company_name(company_name):
+        return "dedicated_client", bot_config.DEDICATED_CLIENT_BOT_USERNAME.lstrip("@")
+    return "shared_client", bot_config.SHARED_CLIENT_BOT_USERNAME.lstrip("@")
+
+
+def _owner_invite_target_from_payload(invite_data: dict) -> tuple[str, str]:
+    role = str(invite_data.get("target_bot_role") or "shared_client")
+    username = str(invite_data.get("target_bot_username") or "").strip().lstrip("@")
+    if role == "dedicated_client":
+        return role, username or bot_config.DEDICATED_CLIENT_BOT_USERNAME.lstrip("@")
+    return "shared_client", username or bot_config.SHARED_CLIENT_BOT_USERNAME.lstrip("@")
+
+
 def _skip_value(text: str | None) -> bool:
     return (text or "").strip().lower() in {"/skip", "skip", "-"}
 
@@ -175,15 +202,17 @@ async def _create_owner_invite(message: Message, company_name: str, locale: str)
         await message.answer("Bitte einen Firmennamen angeben." if locale == "de" else "Please provide a company name.")
         return
 
+    target_bot_role, target_bot_username = _owner_invite_target(clean_company_name)
     token = f"owner_inv_{uuid.uuid4().hex[:24]}"
     invite_data = {
         "company_name": clean_company_name,
         "created_by_username": _message_username(message),
+        "target_bot_role": target_bot_role,
+        "target_bot_username": target_bot_username,
     }
     await redis_client.setex(token, 86400 * 7, json.dumps(invite_data))
 
-    shared_bot_username = bot_config.SHARED_CLIENT_BOT_USERNAME.lstrip("@")
-    invite_link = f"https://t.me/{shared_bot_username}?start={token}"
+    invite_link = f"https://t.me/{target_bot_username}?start={token}"
     safe_company_name = escape(clean_company_name)
     safe_invite_link = escape(invite_link)
     text = (
@@ -204,21 +233,27 @@ async def _start_owner_invite_acceptance(
     token: str,
     locale: str,
 ) -> None:
-    if not _is_shared_client_bot():
-        shared_bot_username = bot_config.SHARED_CLIENT_BOT_USERNAME.lstrip("@")
-        await message.answer(
-            f"Bitte oeffnen Sie diese Owner-Einladung in @{shared_bot_username}."
-            if locale == "de"
-            else f"Please open this owner invite in @{shared_bot_username}."
-        )
-        return
-
     invite_json = await redis_client.get(token)
     if not invite_json:
         await message.answer(
             "Dieser Owner-Einladungslink ist ungueltig oder abgelaufen."
             if locale == "de"
             else "This owner invite is invalid or expired."
+        )
+        return
+
+    invite_data = json.loads(_as_text(invite_json))
+    target_bot_role, target_bot_username = _owner_invite_target_from_payload(invite_data)
+    opened_in_target_bot = (
+        _is_dedicated_client_bot()
+        if target_bot_role == "dedicated_client"
+        else _is_shared_client_bot()
+    )
+    if not opened_in_target_bot:
+        await message.answer(
+            f"Bitte oeffnen Sie diese Owner-Einladung in @{target_bot_username}."
+            if locale == "de"
+            else f"Please open this owner invite in @{target_bot_username}."
         )
         return
 
@@ -242,7 +277,6 @@ async def _start_owner_invite_acceptance(
         )
         return
 
-    invite_data = json.loads(_as_text(invite_json))
     await state.update_data(owner_invite_token=token, owner_invite_data=invite_data)
     await message.answer(
         "Willkommen bei BauClock. Bitte senden Sie zuerst Ihren vollstaendigen Namen."
@@ -612,7 +646,7 @@ async def process_company_email(message: Message, state: FSMContext, session: As
         billing_type=BillingType.HOURLY,
         access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
-        time_tracking_enabled=True,
+        time_tracking_enabled=False,
         is_active=True,
         created_by=None,
     )

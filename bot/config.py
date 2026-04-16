@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     BOT_USERNAME: str = "SEKbaubot"
     BOT_ROLE: str = "dedicated_client"
     PLATFORM_BOT_USERNAME: str = "gewerbebot"
+    DEDICATED_CLIENT_BOT_USERNAME: str = "SEKbaubot"
     SHARED_CLIENT_BOT_USERNAME: str = "bauuhrbot"
     OWNER_PHONE: str = "+49176807279824"
     ADMIN_USERNAMES: list[str] = ["AnOleksii"]

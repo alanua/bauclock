@@ -221,6 +221,7 @@ def test_platform_superadmin_can_create_owner_invite(monkeypatch):
         monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
         monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
         monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "platform")
+        monkeypatch.setattr(chief_handler.bot_config, "DEDICATED_CLIENT_BOT_USERNAME", "SEKbaubot")
         monkeypatch.setattr(chief_handler.bot_config, "SHARED_CLIENT_BOT_USERNAME", "bauuhrbot")
 
         state = FakeState()
@@ -234,8 +235,35 @@ def test_platform_superadmin_can_create_owner_invite(monkeypatch):
         payload = json.loads(redis_stub.setex.await_args.args[2])
         assert token.startswith("owner_inv_")
         assert payload["company_name"] == "Alpha Bau"
+        assert payload["target_bot_role"] == "shared_client"
+        assert payload["target_bot_username"] == "bauuhrbot"
         assert "bauuhrbot" in message.answer.await_args.args[0]
         assert state.current_state is None
+
+    asyncio.run(run_test())
+
+
+def test_platform_superadmin_routes_sek_owner_invite_to_dedicated_bot(monkeypatch):
+    async def run_test():
+        redis_stub = SimpleNamespace(setex=AsyncMock())
+        monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "platform")
+        monkeypatch.setattr(chief_handler.bot_config, "DEDICATED_CLIENT_BOT_USERNAME", "SEKbaubot")
+        monkeypatch.setattr(chief_handler.bot_config, "SHARED_CLIENT_BOT_USERNAME", "bauuhrbot")
+
+        state = FakeState()
+        message = FakeMessage("AnOleksii")
+        message.text = "/owner_invite Generalbau S.E.K. GmbH"
+
+        await chief_handler.cmd_owner_invite(message=message, state=state, locale="de")
+
+        redis_stub.setex.assert_awaited_once()
+        payload = json.loads(redis_stub.setex.await_args.args[2])
+        assert payload["target_bot_role"] == "dedicated_client"
+        assert payload["target_bot_username"] == "SEKbaubot"
+        assert "SEKbaubot" in message.answer.await_args.args[0]
+        assert "bauuhrbot" not in message.answer.await_args.args[0]
 
     asyncio.run(run_test())
 
@@ -244,7 +272,15 @@ def test_owner_invite_acceptance_starts_minimal_onboarding(monkeypatch):
     async def run_test():
         token = "owner_inv_test"
         redis_stub = SimpleNamespace(
-            get=AsyncMock(return_value=json.dumps({"company_name": "Alpha Bau"})),
+            get=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "company_name": "Alpha Bau",
+                        "target_bot_role": "shared_client",
+                        "target_bot_username": "bauuhrbot",
+                    }
+                )
+            ),
         )
         monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
         monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "bauuhrbot")
@@ -273,10 +309,21 @@ def test_owner_invite_acceptance_starts_minimal_onboarding(monkeypatch):
 
 def test_owner_invite_acceptance_stays_on_shared_client_bot(monkeypatch):
     async def run_test():
-        redis_stub = SimpleNamespace(get=AsyncMock())
+        redis_stub = SimpleNamespace(
+            get=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "company_name": "Alpha Bau",
+                        "target_bot_role": "shared_client",
+                        "target_bot_username": "bauuhrbot",
+                    }
+                )
+            )
+        )
         monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
         monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "SEKbaubot")
         monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "dedicated_client")
+        monkeypatch.setattr(chief_handler.bot_config, "DEDICATED_CLIENT_BOT_USERNAME", "SEKbaubot")
         monkeypatch.setattr(chief_handler.bot_config, "SHARED_CLIENT_BOT_USERNAME", "bauuhrbot")
 
         state = FakeState()
@@ -291,9 +338,48 @@ def test_owner_invite_acceptance_stays_on_shared_client_bot(monkeypatch):
             locale="de",
         )
 
-        redis_stub.get.assert_not_called()
+        redis_stub.get.assert_awaited_once_with("owner_inv_wrong_bot")
         assert state.current_state is None
         assert "@bauuhrbot" in message.answer.await_args.args[0]
+
+    asyncio.run(run_test())
+
+
+def test_sek_owner_invite_acceptance_stays_on_dedicated_client_bot(monkeypatch):
+    async def run_test():
+        token = "owner_inv_sek"
+        redis_stub = SimpleNamespace(
+            get=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "company_name": "Generalbau S.E.K. GmbH",
+                        "target_bot_role": "dedicated_client",
+                        "target_bot_username": "SEKbaubot",
+                    }
+                )
+            )
+        )
+        monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "SEKbaubot")
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "dedicated_client")
+        monkeypatch.setattr(chief_handler.bot_config, "DEDICATED_CLIENT_BOT_USERNAME", "SEKbaubot")
+        monkeypatch.setattr(chief_handler.bot_config, "SHARED_CLIENT_BOT_USERNAME", "bauuhrbot")
+
+        state = FakeState()
+        message = FakeMessage("sek_owner")
+        message.text = f"/start {token}"
+
+        await chief_handler.cmd_start(
+            message=message,
+            state=state,
+            session=FakeSession(),
+            current_worker=None,
+            locale="de",
+        )
+
+        redis_stub.get.assert_awaited_once_with(token)
+        assert state.data["owner_invite_data"]["target_bot_role"] == "dedicated_client"
+        assert state.current_state == chief_handler.OwnerAlphaOnboardingStates.waiting_for_owner_name
 
     asyncio.run(run_test())
 
