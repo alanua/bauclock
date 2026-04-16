@@ -27,6 +27,7 @@ from db.database import get_db
 from db.models import CalendarEvent, Company, EventType, Payment, Request, Site, TimeEvent, Worker
 from db.request_service import (
     RequestAccessError,
+    create_request,
     list_company_requests,
     list_worker_requests,
     reject_request,
@@ -41,6 +42,11 @@ DASHBOARD_SHELL_VERSION = "20260415-worker-home"
 
 class MiniAppBootstrapRequest(BaseModel):
     init_data: str
+
+
+class WorkerProblemCreateRequest(BaseModel):
+    text: str
+    related_date: date | None = None
 
 
 def _dashboard_access_denied() -> HTTPException:
@@ -448,6 +454,44 @@ async def dashboard_worker_home(
         raise _dashboard_access_denied() from exc
 
     return await _serialize_worker_home(db, worker=worker)
+
+
+@router.post("/api/dashboard/worker-home/requests")
+async def dashboard_worker_request_create(
+    payload: WorkerProblemCreateRequest,
+    token: str | None = Query(default=None),
+    telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        worker = await _get_authenticated_worker_home_worker(
+            db,
+            token=token,
+            telegram_init_data=telegram_init_data,
+        )
+    except DashboardAccessError as exc:
+        raise _dashboard_access_denied() from exc
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="request_text_required")
+    if len(text) > 280:
+        raise HTTPException(status_code=400, detail="request_text_too_long")
+
+    try:
+        request = await create_request(
+            db,
+            creator_worker=worker,
+            target_worker_id=worker.id,
+            related_date=payload.related_date,
+            text=text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RequestAccessError as exc:
+        raise _dashboard_access_denied() from exc
+
+    return {"request": _serialize_worker_request(request)}
 
 
 @router.get("/api/dashboard/requests")

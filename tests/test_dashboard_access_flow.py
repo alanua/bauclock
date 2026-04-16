@@ -86,6 +86,8 @@ from db.models import (
     Company,
     CompanyPublicProfile,
     EventType,
+    Request,
+    RequestStatus,
     Site,
     TimeEvent,
     Worker,
@@ -443,6 +445,84 @@ def test_worker_home_miniapp_allows_regular_worker_own_data(monkeypatch):
         assert response["calendar"]["items"][0]["label"] == "Urlaub"
         assert response["requests"]["open_count"] == 1
         assert response["requests"]["items"][0]["text"] == "Forgot checkout"
+
+    run_db_test(run_test)
+
+
+def test_worker_home_miniapp_creates_self_problem_request(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "worker-problem")
+        worker = await seed_worker(
+            session,
+            company.id,
+            "worker-problem",
+            can_view_dashboard=False,
+            telegram_id=765433,
+        )
+        other_worker = await seed_worker(
+            session,
+            company.id,
+            "worker-problem-other",
+            can_view_dashboard=False,
+            telegram_id=876544,
+        )
+        await session.commit()
+
+        payload = dashboard_router.WorkerProblemCreateRequest(
+            related_date=date(2026, 4, 15),
+            text="  Bitte Arbeitszeit pruefen.  ",
+        )
+
+        response = await dashboard_router.dashboard_worker_request_create(
+            payload=payload,
+            token=None,
+            telegram_init_data=signed_init_data(765433),
+            db=session,
+        )
+        request = (await session.execute(select(Request))).scalar_one()
+
+        assert response["request"]["text"] == "Bitte Arbeitszeit pruefen."
+        assert response["request"]["status"] == RequestStatus.OPEN.value
+        assert request.company_id == company.id
+        assert request.created_by_worker_id == worker.id
+        assert request.target_worker_id == worker.id
+        assert request.target_worker_id != other_worker.id
+        assert request.related_date == date(2026, 4, 15)
+        assert request.text == "Bitte Arbeitszeit pruefen."
+        assert request.status == RequestStatus.OPEN.value
+
+    run_db_test(run_test)
+
+
+def test_worker_home_problem_request_rejects_empty_text():
+    async def run_test(session):
+        company = await seed_company(session, "worker-problem-empty")
+        await seed_worker(
+            session,
+            company.id,
+            "worker-problem-empty",
+            can_view_dashboard=False,
+            telegram_id=765434,
+        )
+        await session.commit()
+
+        payload = dashboard_router.WorkerProblemCreateRequest(
+            related_date=None,
+            text="   ",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_router.dashboard_worker_request_create(
+                payload=payload,
+                token=None,
+                telegram_init_data=signed_init_data(765434),
+                db=session,
+            )
+
+        requests = (await session.execute(select(Request))).scalars().all()
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "request_text_required"
+        assert requests == []
 
     run_db_test(run_test)
 
