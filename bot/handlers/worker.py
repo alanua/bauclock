@@ -289,8 +289,9 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
     access_role = (
         WorkerAccessRole.SUBCONTRACTOR.value
         if invite_data["worker_type"] == WorkerType.SUBUNTERNEHMER.value
-        else WorkerAccessRole.WORKER.value
+        else invite_data.get("access_role", WorkerAccessRole.WORKER.value)
     )
+    can_view_dashboard = bool(invite_data.get("can_view_dashboard", False))
 
     new_worker = Worker(
         company_id=invite_data["company_id"],
@@ -303,7 +304,7 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
         contract_hours_week=invite_data["contract_hours"],
         language=lang_val,
         access_role=access_role,
-        can_view_dashboard=False,
+        can_view_dashboard=can_view_dashboard,
         time_tracking_enabled=True,
         is_active=True,
         gdpr_consent_at=datetime.now(timezone.utc),

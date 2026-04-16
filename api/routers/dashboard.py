@@ -37,7 +37,7 @@ from db.security import decrypt_string
 
 
 router = APIRouter()
-DASHBOARD_SHELL_VERSION = "20260415-worker-home"
+DASHBOARD_SHELL_VERSION = "20260416-alpha-corridor"
 
 
 class MiniAppBootstrapRequest(BaseModel):
@@ -438,6 +438,44 @@ def _management_today_status(
     }
 
 
+def _status_badge_class(status_key: str) -> str:
+    return {
+        "working": "working",
+        "paused": "on_break",
+        "done": "finished",
+        "not_started": "not_started",
+    }.get(status_key, "not_started")
+
+
+def _serialize_management_workers(
+    workers: list[Worker],
+    *,
+    present_ids: set[int],
+    events_by_worker: dict[int, list[TimeEvent]],
+    now: datetime,
+) -> list[dict[str, object]]:
+    serialized_workers = []
+    for company_worker in workers:
+        worker_events = events_by_worker.get(company_worker.id, [])
+        status = _worker_status(worker_events)
+        minutes = _calculate_day_minutes(worker_events, now)
+        serialized_workers.append(
+            {
+                "id": company_worker.id,
+                "name": decrypt_string(company_worker.full_name_enc),
+                "type": company_worker.worker_type.value,
+                "rate": float(company_worker.hourly_rate or 0),
+                "contract_hours_week": int(company_worker.contract_hours_week or 0),
+                "present_today": company_worker.id in present_ids,
+                "today_status": _status_badge_class(str(status["key"])),
+                "today_status_label": status["label"],
+                "today_work_minutes": minutes["work_minutes"],
+                "today_break_minutes": minutes["break_minutes"],
+            }
+        )
+    return serialized_workers
+
+
 async def _serialize_management_home(
     db: AsyncSession,
     *,
@@ -599,6 +637,11 @@ async def dashboard_data(
     )
     workers = (await db.execute(stmt)).scalars().all()
     present_ids = await get_company_present_worker_ids(db, context.company_id, today)
+    now = datetime.now(timezone.utc)
+    today_events = await _get_company_today_events(db, company_id=context.company_id, today=today)
+    events_by_worker: dict[int, list[TimeEvent]] = {}
+    for event in today_events:
+        events_by_worker.setdefault(event.worker_id, []).append(event)
 
     user = _dashboard_context_user(context)
     user["access_role"] = _management_access_role(context)
@@ -615,17 +658,12 @@ async def dashboard_data(
             workers=list(workers),
             today=today,
         ),
-        "workers": [
-            {
-                "id": company_worker.id,
-                "name": decrypt_string(company_worker.full_name_enc),
-                "type": company_worker.worker_type.value,
-                "rate": float(company_worker.hourly_rate or 0),
-                "contract_hours_week": int(company_worker.contract_hours_week or 0),
-                "present_today": company_worker.id in present_ids,
-            }
-            for company_worker in workers
-        ],
+        "workers": _serialize_management_workers(
+            list(workers),
+            present_ids=present_ids,
+            events_by_worker=events_by_worker,
+            now=now,
+        ),
     }
 
 

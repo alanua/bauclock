@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from db.models import Base, BillingType, Company, EventType, Request, Site, Worker, WorkerType
+from db.models import Base, BillingType, Company, EventType, Request, Site, Worker, WorkerAccessRole, WorkerType
 
 
 class Filter:
@@ -300,5 +300,42 @@ def test_empty_problem_text_does_not_create_request():
         assert await list_requests(session) == []
         assert state.current_state == worker_handler.ReportProblemStates.waiting_for_description
         message.answer.assert_awaited_once()
+
+    run_db_test(run_test)
+
+
+def test_worker_invite_can_create_objektmanager_dashboard_access(monkeypatch):
+    async def run_test(session):
+        manager = await seed_worker(session)
+        state = FakeState()
+        await state.update_data(
+            token="inv_objektmanager",
+            invite_data={
+                "company_id": manager.company_id,
+                "name": "Site Manager",
+                "worker_type": WorkerType.FESTANGESTELLT.value,
+                "hourly_rate": 22,
+                "contract_hours": 40,
+                "created_by": manager.id,
+                "access_role": WorkerAccessRole.OBJEKTMANAGER.value,
+                "can_view_dashboard": True,
+            },
+        )
+        redis_stub = SimpleNamespace(delete=AsyncMock())
+        monkeypatch.setattr(worker_handler, "redis_client", redis_stub)
+        callback = SimpleNamespace(
+            from_user=SimpleNamespace(id=999888),
+            message=SimpleNamespace(reply_markup=None, answer=AsyncMock(), edit_text=AsyncMock()),
+        )
+
+        await worker_handler.handle_language_selection(callback, state, session, "de")
+
+        workers = (await session.execute(select(Worker).order_by(Worker.id))).scalars().all()
+        created = workers[-1]
+        assert created.company_id == manager.company_id
+        assert created.access_role == WorkerAccessRole.OBJEKTMANAGER.value
+        assert created.can_view_dashboard is True
+        assert created.time_tracking_enabled is True
+        redis_stub.delete.assert_awaited_once_with("inv_objektmanager")
 
     run_db_test(run_test)

@@ -418,6 +418,30 @@
       color: var(--success);
     }
 
+    .status-badge.working {
+      background: var(--success-soft);
+      border-color: rgba(79, 159, 126, 0.18);
+      color: var(--success);
+    }
+
+    .status-badge.on_break {
+      background: var(--warning-soft);
+      border-color: rgba(183, 139, 53, 0.18);
+      color: var(--warning);
+    }
+
+    .status-badge.finished {
+      background: var(--surface-muted);
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+
+    .status-badge.not_started {
+      background: rgba(250, 246, 238, 0.82);
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+
     .status-badge.open {
       background: var(--warning-soft);
       border-color: rgba(183, 139, 53, 0.18);
@@ -1876,9 +1900,10 @@
             <table class="workers-table">
               <thead>
                 <tr>
-                  <th class="status-cell">Status</th>
+                  <th>Status</th>
                   <th>Name</th>
                   <th>Typ</th>
+                  <th>Heute</th>
                   <th>Stundensatz</th>
                   <th>Std./Woche</th>
                 </tr>
@@ -2483,6 +2508,10 @@
           rate: Number(worker.rate || 0),
           contract_hours_week: Number(worker.contract_hours_week || 0),
           present_today: Boolean(worker.present_today),
+          today_status: String(worker.today_status || (worker.present_today ? "working" : "not_started")),
+          today_status_label: String(worker.today_status_label || (worker.present_today ? "Anwesend" : "Nicht gestartet")),
+          today_work_minutes: Number(worker.today_work_minutes || 0),
+          today_break_minutes: Number(worker.today_break_minutes || 0),
         })),
       };
     }
@@ -2771,15 +2800,18 @@
 
       elements.workersTableBody.innerHTML = filteredWorkers
         .map((worker) => {
-          const badgeClass = worker.present_today ? "present" : "";
-          const badgeLabel = worker.present_today ? "Anwesend" : "Abwesend";
+          const badgeClass = worker.today_status || (worker.present_today ? "working" : "not_started");
+          const badgeLabel = worker.today_status_label || (worker.present_today ? "Anwesend" : "Nicht gestartet");
+          const todayTime = formatDuration(worker.today_work_minutes);
+          const breakTime = formatDuration(worker.today_break_minutes);
           return `
             <tr>
-              <td class="status-cell">
-                <span class="status-dot ${badgeClass}" title="${badgeLabel}"></span>
+              <td>
+                <span class="status-badge ${escapeHtml(badgeClass)}">${escapeHtml(badgeLabel)}</span>
               </td>
               <td class="worker-name">${escapeHtml(worker.name)}</td>
               <td>${escapeHtml(formatWorkerType(worker.type))}</td>
+              <td class="amount">${escapeHtml(todayTime)} <span class="inline-muted">/ Pause ${escapeHtml(breakTime)}</span></td>
               <td class="amount">${escapeHtml(formatCurrency(worker.rate))}</td>
               <td class="amount">${escapeHtml(String(worker.contract_hours_week || 0))} h</td>
             </tr>
@@ -2789,8 +2821,8 @@
 
       elements.mobileWorkers.innerHTML = filteredWorkers
         .map((worker) => {
-          const badgeClass = worker.present_today ? "present" : "";
-          const badgeLabel = worker.present_today ? "Anwesend" : "Abwesend";
+          const badgeClass = worker.today_status || (worker.present_today ? "working" : "not_started");
+          const badgeLabel = worker.today_status_label || (worker.present_today ? "Anwesend" : "Nicht gestartet");
           return `
             <article class="worker-card">
               <div class="worker-card-head">
@@ -2798,9 +2830,17 @@
                   <div class="worker-name">${escapeHtml(worker.name)}</div>
                   <div class="worker-type">${escapeHtml(formatWorkerType(worker.type))}</div>
                 </div>
-                <span class="status-badge ${badgeClass}">${badgeLabel}</span>
+                <span class="status-badge ${escapeHtml(badgeClass)}">${escapeHtml(badgeLabel)}</span>
               </div>
               <div class="worker-card-body">
+                <div class="worker-row">
+                  <span class="worker-row-label">Heute</span>
+                  <span class="amount">${escapeHtml(formatDuration(worker.today_work_minutes))}</span>
+                </div>
+                <div class="worker-row">
+                  <span class="worker-row-label">Pause</span>
+                  <span class="amount">${escapeHtml(formatDuration(worker.today_break_minutes))}</span>
+                </div>
                 <div class="worker-row">
                   <span class="worker-row-label">Stundensatz</span>
                   <span class="amount">${escapeHtml(formatCurrency(worker.rate))}</span>

@@ -461,6 +461,12 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
         assert home["partners"]["subcontractor_workers"] == 1
         assert home["quick_entries"]["sites"] == 1
         assert home["quick_entries"]["calendar"] == 1
+        workers_by_name = {worker["name"]: worker for worker in response["workers"]}
+        assert workers_by_name["name_enc_management-home-working"]["today_status"] == "working"
+        assert workers_by_name["name_enc_management-home-break"]["today_status"] == "on_break"
+        assert workers_by_name["name_enc_management-home-waiting"]["today_status"] == "not_started"
+        assert workers_by_name["name_enc_management-home-working"]["today_work_minutes"] > 0
+        assert workers_by_name["name_enc_management-home-break"]["today_break_minutes"] > 0
 
     run_db_test(run_test)
 

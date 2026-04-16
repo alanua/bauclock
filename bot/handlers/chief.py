@@ -1,107 +1,484 @@
-import uuid
 import json
+import re
+import urllib.parse
+import uuid
 from html import escape
-from aiogram import Router, F
-from aiogram.filters import Command
+
+from aiogram import F, Router
 from aiogram.enums import ParseMode
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from access.legacy_policy import can_access_dashboard
-from db.models import Company, Site, Worker, WorkerAccessRole, WorkerType, BillingType
-from db.security import encrypt_string, hash_string
-from bot.states.chief_states import ChiefRegistrationStates, AddWorkerStates
-from bot.keyboards.chief_kb import get_worker_type_kb, get_cancel_kb
-from bot.redis_cache import redis_client
 from bot.config import settings as bot_config
-from bot.utils.qr import generate_qr_code
-from bot.utils.pdf import generate_site_pdf
+from bot.keyboards.chief_kb import (
+    get_cancel_kb,
+    get_objektmanager_flag_kb,
+    get_site_role_kb,
+    get_worker_type_kb,
+)
+from bot.redis_cache import redis_client
+from bot.states.chief_states import (
+    AddSiteStates,
+    AddWorkerStates,
+    ChiefRegistrationStates,
+    OwnerAlphaOnboardingStates,
+    PlatformOwnerInviteStates,
+)
 from bot.utils.access import normalize_phone, normalize_username
 from bot.utils.owner_worker import ensure_company_owner_worker
-from aiogram.types import BufferedInputFile
+from bot.utils.pdf import generate_site_pdf
+from bot.utils.qr import generate_qr_code
+from db.models import (
+    BillingType,
+    Company,
+    CompanyPublicProfile,
+    Site,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
+from db.security import encrypt_string, hash_string
 
 router = Router()
+
+
+def _as_text(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value or "")
+
+
+def _message_username(message: Message) -> str:
+    return normalize_username(getattr(message.from_user, "username", "") or "")
+
+
+def _is_platform_superadmin(message: Message) -> bool:
+    return (
+        bot_config.is_platform_bot
+        and _message_username(message) in bot_config.PLATFORM_SUPERADMIN_USERNAMES
+    )
+
+
+def _is_shared_client_bot() -> bool:
+    current_bot = normalize_username(bot_config.BOT_USERNAME)
+    shared_bot = normalize_username(bot_config.SHARED_CLIENT_BOT_USERNAME)
+    return bot_config.BOT_ROLE == "shared_client" or (
+        bool(current_bot) and current_bot == shared_bot
+    )
+
+
+def _skip_value(text: str | None) -> bool:
+    return (text or "").strip().lower() in {"/skip", "skip", "-"}
+
+
+def _slug_base(company_name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", company_name.lower()).strip("-")
+    return slug[:48].strip("-") or "company"
+
+
+async def _unique_company_slug(session: AsyncSession, company_name: str) -> str:
+    base = _slug_base(company_name)
+    slug = base
+    suffix = 2
+    while True:
+        existing = await session.scalar(
+            select(CompanyPublicProfile.id).where(CompanyPublicProfile.slug == slug)
+        )
+        if not existing:
+            return slug
+        suffix_text = f"-{suffix}"
+        slug = f"{base[:64 - len(suffix_text)]}{suffix_text}"
+        suffix += 1
+
+
+def _owner_next_steps_text(company: Company, profile_slug: str | None, locale: str) -> str:
+    public_url = f"{bot_config.APP_URL.rstrip('/')}/c/{profile_slug}" if profile_slug else ""
+    lines = [
+        f"Willkommen bei BauClock, {company.name}.",
+        "",
+        "Ihr Owner-Zugang ist aktiv.",
+        "",
+        "Empfohlene naechste Schritte:",
+        "1. /add_worker - erste Person anlegen",
+        "2. /add_site - erste Baustelle mit QR anlegen",
+        "3. /dashboard - Management Home oeffnen",
+    ]
+    if locale != "de":
+        lines = [
+            f"Welcome to BauClock, {company.name}.",
+            "",
+            "Your owner access is active.",
+            "",
+            "Next steps:",
+            "1. /add_worker - create the first person",
+            "2. /add_site - create the first site and QR",
+            "3. /dashboard - open management home",
+        ]
+    if public_url:
+        lines.extend(["", f"Oeffentliche Firmenseite: {public_url}" if locale == "de" else f"Public company page: {public_url}"])
+    return "\n".join(lines)
+
+
+def _site_description_for_role(role: str) -> str:
+    label = {"general_contractor": "Generalunternehmer"}.get(role, role)
+    return f"Rolle: {label} (Alpha)"
+
+
+def _safe_filename(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_") or "bauclock"
+
+
+async def _send_site_qr(message: Message, company: Company, site: Site, locale: str) -> None:
+    bot_info = await message.bot.get_me()
+    bot_username = getattr(bot_info, "username", None) or bot_config.BOT_USERNAME
+    tg_link = f"https://t.me/{bot_username}?start={site.qr_token}"
+    safe_name = _safe_filename(site.name)
+
+    qr_bio = generate_qr_code(tg_link)
+    qr_file = BufferedInputFile(qr_bio.getvalue(), filename=f"qr_{safe_name}.png")
+    pdf_bytes = generate_site_pdf(tg_link, company.name, site.name, site.address or "")
+    pdf_file = BufferedInputFile(pdf_bytes, filename=f"BauClock_Aushang_{safe_name}.pdf")
+
+    text = (
+        f"Baustelle '{site.name}' erstellt.\n\n"
+        "Der QR-Code ist fuer den Bot-Zeiterfassungsfluss bereit: Ankunft, Pause, Feierabend."
+        if locale == "de"
+        else f"Site '{site.name}' created.\n\nThe QR code is ready for the bot time flow."
+    )
+    pdf_caption = "Druckfertiges A4-PDF fuer die Baustelle." if locale == "de" else "Print-ready A4 PDF for the site."
+    await message.answer_photo(qr_file, caption=text)
+    await message.answer_document(pdf_file, caption=pdf_caption)
+
+
+async def _create_owner_invite(message: Message, company_name: str, locale: str) -> None:
+    clean_company_name = (company_name or "").strip()
+    if not clean_company_name:
+        await message.answer("Bitte einen Firmennamen angeben." if locale == "de" else "Please provide a company name.")
+        return
+
+    token = f"owner_inv_{uuid.uuid4().hex[:24]}"
+    invite_data = {
+        "company_name": clean_company_name,
+        "created_by_username": _message_username(message),
+    }
+    await redis_client.setex(token, 86400 * 7, json.dumps(invite_data))
+
+    shared_bot_username = bot_config.SHARED_CLIENT_BOT_USERNAME.lstrip("@")
+    invite_link = f"https://t.me/{shared_bot_username}?start={token}"
+    safe_company_name = escape(clean_company_name)
+    safe_invite_link = escape(invite_link)
+    text = (
+        f"Owner-Einladung fuer {safe_company_name} erstellt.\n\n"
+        f"{safe_invite_link}\n\n"
+        "Gueltig: 7 Tage. Der Link ist einmalig fuer den ersten Company Owner."
+        if locale == "de"
+        else f"Owner invite for {safe_company_name} created.\n\n{safe_invite_link}\n\nValid: 7 days."
+    )
+    await message.answer(text)
+
+
+async def _start_owner_invite_acceptance(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    token: str,
+    locale: str,
+) -> None:
+    if not _is_shared_client_bot():
+        shared_bot_username = bot_config.SHARED_CLIENT_BOT_USERNAME.lstrip("@")
+        await message.answer(
+            f"Bitte oeffnen Sie diese Owner-Einladung in @{shared_bot_username}."
+            if locale == "de"
+            else f"Please open this owner invite in @{shared_bot_username}."
+        )
+        return
+
+    invite_json = await redis_client.get(token)
+    if not invite_json:
+        await message.answer(
+            "Dieser Owner-Einladungslink ist ungueltig oder abgelaufen."
+            if locale == "de"
+            else "This owner invite is invalid or expired."
+        )
+        return
+
+    if current_worker:
+        await message.answer(
+            "Sie sind bereits in BauClock registriert. Oeffnen Sie /dashboard fuer Ihren Bereich."
+            if locale == "de"
+            else "You are already registered in BauClock. Open /dashboard."
+        )
+        return
+
+    tg_hash = hash_string(str(message.from_user.id))
+    existing_company = await session.scalar(
+        select(Company.id).where(Company.owner_telegram_id_hash == tg_hash)
+    )
+    if existing_company:
+        await message.answer(
+            "Ihr Owner-Zugang existiert bereits. Bitte starten Sie erneut mit /start."
+            if locale == "de"
+            else "Your owner access already exists. Please start again with /start."
+        )
+        return
+
+    invite_data = json.loads(_as_text(invite_json))
+    await state.update_data(owner_invite_token=token, owner_invite_data=invite_data)
+    await message.answer(
+        "Willkommen bei BauClock. Bitte senden Sie zuerst Ihren vollstaendigen Namen."
+        if locale == "de"
+        else "Welcome to BauClock. Please send your full name first."
+    )
+    await state.set_state(OwnerAlphaOnboardingStates.waiting_for_owner_name)
+
 
 @router.callback_query(F.data == "cancel_action")
 async def cancel_action(callback: CallbackQuery, state: FSMContext, locale: str):
     await state.clear()
-    text = "Aktion abgebrochen." if locale == "de" else "Дію скасовано."
-    await callback.message.edit_text(text)
+    await callback.message.edit_text("Aktion abgebrochen." if locale == "de" else "Action cancelled.")
     await callback.answer()
 
-@router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, current_worker: Worker, locale: str):
-    """
-    Handles /start. Routes deep links (site_*, inv_*) to worker.py eventually.
-    Initiates Chief Registration if new user without args.
-    """
-    args = message.text.split(maxsplit=1)
-    
-    if len(args) == 2:
-        token = args[1]
-        # In a real setup, we might re-route these from here, or let them fall through if handled generally
-        # We will handle these in worker.py which intercepts deep links
-        # But if it falls here, we just hint:
-        if token.startswith("site_") or token.startswith("inv_"):
-            return # Let worker.py handle it! We should ensure worker.py router intercepts this, or we import and call it
 
-    # If already a worker:
+@router.message(Command("start"))
+async def cmd_start(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) == 2:
+        token = parts[1].strip()
+        if token.startswith("owner_inv_"):
+            await _start_owner_invite_acceptance(message, state, session, current_worker, token, locale)
+            return
+        if token.startswith("site_") or token.startswith("inv_"):
+            return
+
     if current_worker:
-        text = "Willkommen zurück bei SEK Zeiterfassung! Nutzen Sie /dashboard für eine Übersicht oder /add_worker um Mitarbeiter hinzuzufügen." if locale == "de" else "Ласкаво просимо назад! Використовуйте /dashboard або /add_worker."
+        text = (
+            "Willkommen zurueck bei BauClock. Nutzen Sie /dashboard fuer die Uebersicht oder /add_worker fuer Mitarbeiter."
+            if locale == "de"
+            else "Welcome back to BauClock. Use /dashboard or /add_worker."
+        )
         await message.answer(text)
         return
 
-    # Check if this user is already a company owner who somehow doesn't have a Worker record
     tg_hash = hash_string(str(message.from_user.id))
-    stmt = select(Company).where(Company.owner_telegram_id_hash == tg_hash)
-    result = await session.execute(stmt)
-    company = result.scalar_one_or_none()
-
+    company = await session.scalar(select(Company).where(Company.owner_telegram_id_hash == tg_hash))
     if company:
         await ensure_company_owner_worker(message.from_user, session, company)
-        text = f"Willkommen zurück, Chef von {company.name}!" if locale == "de" else f"Вітаємо, керівник {company.name}!"
-        await message.answer(text)
+        await message.answer(
+            f"Willkommen zurueck, Owner von {company.name}!"
+            if locale == "de"
+            else f"Welcome back, owner of {company.name}!"
+        )
         return
 
-    # Platform superadmins only receive platform entry through the platform bot.
-    username = message.from_user.username or ""
-    normalized_username = normalize_username(username)
-    if bot_config.is_platform_bot and normalized_username in bot_config.PLATFORM_SUPERADMIN_USERNAMES:
+    if _is_platform_superadmin(message):
         text = (
-            "BauClock Plattformzugang ist aktiv. Oeffnen Sie die Mini App, um den geschuetzten Bereich zu nutzen."
+            "BauClock Plattformzugang ist aktiv.\n\n"
+            "Owner-Einladung erstellen:\n"
+            "/owner_invite Firmenname\n\n"
+            "Oder Mini App oeffnen fuer den geschuetzten Bereich."
             if locale == "de"
-            else "BauClock platform access is active. Open the Mini App to use the protected area."
+            else "BauClock platform access is active.\n\nCreate an owner invite:\n/owner_invite Company name\n\nOr open the Mini App."
         )
         await message.answer(text)
         return
 
-    # Legacy company setup remains client-bot scoped.
+    normalized_username = _message_username(message)
     if normalized_username in bot_config.ADMIN_USERNAMES:
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="📱 Teilen Sie Ihre Telefonnummer", request_contact=True)]],
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Telefonnummer teilen", request_contact=True)]],
             resize_keyboard=True,
-            one_time_keyboard=True
+            one_time_keyboard=True,
         )
         await message.answer(
-            f"👋 Willkommen, {username}! Admin-Zugang erkannt.\n\n"
+            f"Willkommen, {message.from_user.username or message.from_user.full_name}! Admin-Zugang erkannt.\n\n"
             "Bitte verifizieren Sie sich mit Ihrer Telefonnummer:",
-            reply_markup=kb
+            reply_markup=keyboard,
         )
         await state.set_state(ChiefRegistrationStates.waiting_for_owner_phone)
         return
 
-    # Unknown user — show company info only
     await message.answer(
-        "🏗 Generalbau S.E.K. GmbH\n"
-        "Wir bauen Zukunft – Stein auf Stein.\n\n"
-        "Generalbau · Trockenbau · Putz & Maler · Dämmung\n\n"
-        "📍 Am Industriegelände 3\n"
+        "Generalbau S.E.K. GmbH\n"
+        "Wir bauen Zukunft - Stein auf Stein.\n\n"
+        "Generalbau - Trockenbau - Putz & Maler - Daemmung\n\n"
+        "Am Industriegelaende 3\n"
         "14772 Brandenburg an der Havel\n"
-        "🌐 generalbau-sek.de"
+        "generalbau-sek.de"
     )
-    return
+
+
+@router.message(Command("owner_invite"))
+async def cmd_owner_invite(message: Message, state: FSMContext, locale: str):
+    if not _is_platform_superadmin(message):
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) == 2 and parts[1].strip():
+        await _create_owner_invite(message, parts[1].strip(), locale)
+        await state.clear()
+        return
+
+    await message.answer(
+        "Fuer welche Firma soll der erste Owner eingeladen werden?"
+        if locale == "de"
+        else "Which company should receive the first owner invite?"
+    )
+    await state.set_state(PlatformOwnerInviteStates.waiting_for_company_name)
+
+
+@router.message(PlatformOwnerInviteStates.waiting_for_company_name)
+async def process_owner_invite_company_name(message: Message, state: FSMContext, locale: str):
+    if not _is_platform_superadmin(message):
+        await state.clear()
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    await _create_owner_invite(message, (message.text or "").strip(), locale)
+    await state.clear()
+
+
+@router.message(OwnerAlphaOnboardingStates.waiting_for_owner_name)
+async def process_owner_alpha_name(message: Message, state: FSMContext, locale: str):
+    owner_name = (message.text or "").strip()
+    if not owner_name or owner_name.startswith("/"):
+        await message.answer("Bitte senden Sie Ihren vollstaendigen Namen." if locale == "de" else "Please send your full name.")
+        return
+
+    data = await state.get_data()
+    invite_data = data.get("owner_invite_data") or {}
+    invite_company_name = invite_data.get("company_name") or "Ihre Firma"
+    await state.update_data(owner_name=owner_name)
+    await message.answer(
+        f"Wie soll die Firma heissen?\n\nVorschlag aus Einladung: {invite_company_name}\nMit /skip uebernehmen."
+        if locale == "de"
+        else f"What is the company name?\n\nInvite suggestion: {invite_company_name}\nSend /skip to use it."
+    )
+    await state.set_state(OwnerAlphaOnboardingStates.waiting_for_company_name)
+
+
+@router.message(OwnerAlphaOnboardingStates.waiting_for_company_name)
+async def process_owner_alpha_company_name(message: Message, state: FSMContext, locale: str):
+    data = await state.get_data()
+    invite_data = data.get("owner_invite_data") or {}
+    suggested_name = invite_data.get("company_name") or ""
+    company_name = suggested_name if _skip_value(message.text) else (message.text or "").strip()
+    if not company_name:
+        await message.answer("Bitte einen Firmennamen senden oder /skip nutzen." if locale == "de" else "Please send a company name or use /skip.")
+        return
+
+    await state.update_data(company_name=company_name)
+    await message.answer(
+        "Bitte senden Sie die Firmenadresse fuer die oeffentliche Seite (oder /skip)."
+        if locale == "de"
+        else "Please send the company address for the public page (or /skip)."
+    )
+    await state.set_state(OwnerAlphaOnboardingStates.waiting_for_company_address)
+
+
+@router.message(OwnerAlphaOnboardingStates.waiting_for_company_address)
+async def process_owner_alpha_company_address(message: Message, state: FSMContext, locale: str):
+    company_address = "Adresse folgt" if _skip_value(message.text) else (message.text or "").strip()
+    if not company_address:
+        await message.answer("Bitte eine Adresse senden oder /skip nutzen." if locale == "de" else "Please send an address or use /skip.")
+        return
+
+    await state.update_data(company_address=company_address)
+    await message.answer(
+        "Bitte senden Sie die Firmen-E-Mail fuer die oeffentliche Seite (oder /skip)."
+        if locale == "de"
+        else "Please send the company email for the public page (or /skip)."
+    )
+    await state.set_state(OwnerAlphaOnboardingStates.waiting_for_company_email)
+
+
+@router.message(OwnerAlphaOnboardingStates.waiting_for_company_email)
+async def process_owner_alpha_company_email(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    locale: str,
+):
+    data = await state.get_data()
+    owner_name = (data.get("owner_name") or "").strip()
+    company_name = (data.get("company_name") or "").strip()
+    company_address = (data.get("company_address") or "Adresse folgt").strip()
+    company_email = None if _skip_value(message.text) else (message.text or "").strip() or None
+    token = data.get("owner_invite_token")
+
+    if not owner_name or not company_name:
+        await state.clear()
+        await message.answer(
+            "Onboarding konnte nicht abgeschlossen werden. Bitte starten Sie den Invite-Link erneut."
+            if locale == "de"
+            else "Onboarding could not be completed. Please open the invite link again."
+        )
+        return
+
+    tg_id_str = str(message.from_user.id)
+    company = Company(
+        name=company_name,
+        email=company_email,
+        owner_telegram_id_enc=encrypt_string(tg_id_str),
+        owner_telegram_id_hash=hash_string(tg_id_str),
+    )
+    session.add(company)
+    await session.flush()
+
+    owner = Worker(
+        company_id=company.id,
+        telegram_id_enc=encrypt_string(tg_id_str),
+        telegram_id_hash=hash_string(tg_id_str),
+        full_name_enc=encrypt_string(owner_name),
+        worker_type=WorkerType.FESTANGESTELLT,
+        billing_type=BillingType.HOURLY,
+        hourly_rate=0,
+        contract_hours_week=0,
+        access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        can_view_dashboard=True,
+        time_tracking_enabled=False,
+        is_active=True,
+        created_by=None,
+    )
+    session.add(owner)
+
+    profile_slug = await _unique_company_slug(session, company_name)
+    public_profile = CompanyPublicProfile(
+        company_id=company.id,
+        slug=profile_slug,
+        company_name=company_name,
+        subtitle="Bauunternehmen",
+        about_text=f"{company_name} nutzt BauClock fuer Zeiterfassung und Baustellenkoordination.",
+        address=company_address,
+        email=company_email,
+        is_active=True,
+    )
+    session.add(public_profile)
+    await session.commit()
+
+    if token:
+        await redis_client.delete(token)
+    await state.clear()
+    await message.answer(_owner_next_steps_text(company, profile_slug, locale))
+
 
 @router.message(ChiefRegistrationStates.waiting_for_owner_phone, F.contact)
 async def process_owner_phone(message: Message, state: FSMContext, locale: str):
@@ -113,93 +490,67 @@ async def process_owner_phone(message: Message, state: FSMContext, locale: str):
 
     contact = message.contact
     if not contact or (contact.user_id and contact.user_id != message.from_user.id):
-        text = (
-            "Bitte teilen Sie Ihre eigene Telefonnummer."
-            if locale == "de"
-            else "Будь ласка, поділіться власним номером телефону."
-        )
-        await message.answer(text)
+        await message.answer("Bitte teilen Sie Ihre eigene Telefonnummer.")
         return
 
     owner_phone = normalize_phone(bot_config.OWNER_PHONE)
     shared_phone = normalize_phone(contact.phone_number)
     if not shared_phone or shared_phone != owner_phone:
         await state.clear()
-        text = (
-            "Verifizierung fehlgeschlagen."
-            if locale == "de"
-            else "Верифікація не пройдена."
-        )
-        await message.answer(text, reply_markup=ReplyKeyboardRemove())
+        await message.answer("Verifizierung fehlgeschlagen.", reply_markup=ReplyKeyboardRemove())
         return
 
-    text = (
-        "Verifizierung erfolgreich. Bitte geben Sie den Namen Ihres Unternehmens ein:"
-        if locale == "de"
-        else "Верифікація успішна. Будь ласка, надішліть назву вашої компанії:"
+    await message.answer(
+        "Verifizierung erfolgreich. Bitte geben Sie den Namen Ihres Unternehmens ein:",
+        reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer(text, reply_markup=ReplyKeyboardRemove())
     await state.set_state(ChiefRegistrationStates.waiting_for_company_name)
+
 
 @router.message(ChiefRegistrationStates.waiting_for_owner_phone)
 async def process_owner_phone_invalid(message: Message, locale: str):
-    text = (
-        "Bitte teilen Sie Ihre Telefonnummer ueber den Button."
-        if locale == "de"
-        else "Будь ласка, поділіться номером телефону через кнопку."
-    )
-    await message.answer(text)
+    await message.answer("Bitte teilen Sie Ihre Telefonnummer ueber den Button.")
+
 
 @router.message(ChiefRegistrationStates.waiting_for_company_name)
 async def process_company_name(message: Message, state: FSMContext, session: AsyncSession, locale: str):
-    company_name = message.text.strip()
+    company_name = (message.text or "").strip()
+    if not company_name:
+        await message.answer("Bitte geben Sie den Namen Ihres Unternehmens ein:")
+        return
     await state.update_data(company_name=company_name)
-    
-    text = (
-        "Bitte geben Sie die Telefonnummer Ihres Unternehmens ein (oder /skip):"
-    ) if locale == "de" else (
-        "Будь ласка, введіть номер телефону вашої компанії (або /skip):"
-    )
-    await message.answer(text)
+    await message.answer("Bitte geben Sie die Telefonnummer Ihres Unternehmens ein (oder /skip):")
     await state.set_state(ChiefRegistrationStates.waiting_for_company_phone)
+
 
 @router.message(ChiefRegistrationStates.waiting_for_company_phone)
 async def process_company_phone(message: Message, state: FSMContext, session: AsyncSession, locale: str):
-    phone = message.text.strip()
-    if phone != "/skip":
-        await state.update_data(phone=phone)
-    
-    text = (
-        "Bitte geben Sie die E-Mail-Adresse Ihres Unternehmens ein (oder /skip):"
-    ) if locale == "de" else (
-        "Будь ласка, введіть електронну адресу вашої компанії (або /skip):"
-    )
-    await message.answer(text)
+    if not _skip_value(message.text):
+        await state.update_data(phone=(message.text or "").strip())
+    await message.answer("Bitte geben Sie die E-Mail-Adresse Ihres Unternehmens ein (oder /skip):")
     await state.set_state(ChiefRegistrationStates.waiting_for_company_email)
+
 
 @router.message(ChiefRegistrationStates.waiting_for_company_email)
 async def process_company_email(message: Message, state: FSMContext, session: AsyncSession, locale: str):
-    email = message.text.strip()
-    if email != "/skip":
-        await state.update_data(email=email)
-        
+    if not _skip_value(message.text):
+        await state.update_data(email=(message.text or "").strip())
+
     data = await state.get_data()
     company_name = data.get("company_name")
-    
     tg_id_str = str(message.from_user.id)
-    new_company = Company(
+    company = Company(
         name=company_name,
         phone=data.get("phone"),
         email=data.get("email"),
         owner_telegram_id_enc=encrypt_string(tg_id_str),
-        owner_telegram_id_hash=hash_string(tg_id_str)
+        owner_telegram_id_hash=hash_string(tg_id_str),
     )
-    session.add(new_company)
-    await session.flush() # flush to generate new_company.id
-    
-    # Create the Chief as a Festangestellt Worker with Dashboard access (OWNER role)
+    session.add(company)
+    await session.flush()
+
     chief_worker = Worker(
-        company_id=new_company.id,
+        company_id=company.id,
         telegram_id_enc=encrypt_string(tg_id_str),
         telegram_id_hash=hash_string(tg_id_str),
         full_name_enc=encrypt_string(message.from_user.full_name or "Chief/Owner"),
@@ -209,179 +560,291 @@ async def process_company_email(message: Message, state: FSMContext, session: As
         can_view_dashboard=True,
         time_tracking_enabled=True,
         is_active=True,
-        created_by=None  # The chief creates themselves
+        created_by=None,
     )
     session.add(chief_worker)
     await session.commit()
-    
-    await state.update_data(company_id=new_company.id)
-    
-    text = f"Unternehmen '{company_name}' registriert! Wie heißt Ihre erste Baustelle?" if locale == "de" else f"Компанію '{company_name}' зареєстровано! Як називається ваш перший об'єкт?"
-    await message.answer(text)
+
+    await state.update_data(company_id=company.id)
+    await message.answer(f"Unternehmen '{company_name}' registriert. Wie heisst Ihre erste Baustelle?")
     await state.set_state(ChiefRegistrationStates.waiting_for_first_site_name)
+
 
 @router.message(ChiefRegistrationStates.waiting_for_first_site_name)
 async def process_site_name(message: Message, state: FSMContext, session: AsyncSession, locale: str):
-    site_name = message.text.strip()
+    site_name = (message.text or "").strip()
     data = await state.get_data()
-    company_id = data.get("company_id")
-    
-    # Fetch company for PDF info
-    company = await session.get(Company, company_id)
-    
-    qr_token = f"site_{uuid.uuid4().hex[:16]}"
-    
-    new_site = Site(
-        company_id=company_id,
-        name=site_name,
-        qr_token=qr_token,
-        is_active=True
-    )
-    session.add(new_site)
-    await session.commit()
-    
-    # QR opens the bot; public/direct opens show neutral site info unless a worker chose an action first.
-    tg_link = f"https://t.me/{bot_config.BOT_USERNAME}?start={qr_token}"
-    
-    # 1. Generate QR Code Photo
-    qr_bio = generate_qr_code(tg_link)
-    qr_file = BufferedInputFile(qr_bio.getvalue(), filename=f"qr_{site_name}.png")
-    
-    # 2. Generate Print-ready PDF
-    pdf_bytes = generate_site_pdf(tg_link, company.name, site_name, "")
-    pdf_file = BufferedInputFile(pdf_bytes, filename=f"SEK_Aushang_{site_name}.pdf")
+    company = await session.get(Company, data.get("company_id"))
+    if not company or not site_name:
+        await state.clear()
+        await message.answer("Baustelle konnte nicht erstellt werden. Bitte starten Sie erneut.")
+        return
 
-    text = (
-        f"Baustelle '{site_name}' erstellt!\n\n"
-        f"Hier ist der QR-Code fuer die Objektseite vor Ort.\n\n"
-        "Der Company Owner kann nun die weiteren Unternehmensdaten und Personen verwalten."
-    ) if locale == "de" else (
-        f"Об'єкт '{site_name}' створено!\n\nОсь QR-код для чекіну."
+    site = Site(
+        company_id=company.id,
+        name=site_name,
+        qr_token=f"site_{uuid.uuid4().hex[:16]}",
+        is_active=True,
     )
-    
-    await message.answer_photo(qr_file, caption=text)
-    await message.answer_document(pdf_file, caption="Druckfertiges A4-PDF für die Baustelle.")
-    
+    session.add(site)
+    await session.commit()
+    await _send_site_qr(message, company, site, locale)
     await state.clear()
 
-# --- Add Worker Flow ---
+
+@router.message(Command("add_site"))
+async def cmd_add_site(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
+    if not can_access_dashboard(current_worker):
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    await state.clear()
+    await message.answer("Wie heisst die Baustelle?" if locale == "de" else "What is the site name?")
+    await state.set_state(AddSiteStates.waiting_for_name)
+
+
+@router.message(AddSiteStates.waiting_for_name)
+async def process_add_site_name(message: Message, state: FSMContext, locale: str):
+    site_name = (message.text or "").strip()
+    if not site_name or site_name.startswith("/"):
+        await message.answer("Bitte einen Baustellennamen senden." if locale == "de" else "Please send a site name.")
+        return
+
+    await state.update_data(site_name=site_name)
+    await message.answer("Adresse der Baustelle senden (oder /skip)." if locale == "de" else "Send the site address (or /skip).")
+    await state.set_state(AddSiteStates.waiting_for_address)
+
+
+@router.message(AddSiteStates.waiting_for_address)
+async def process_add_site_address(message: Message, state: FSMContext, locale: str):
+    site_address = "" if _skip_value(message.text) else (message.text or "").strip()
+    await state.update_data(site_address=site_address)
+    await message.answer(
+        "Welche Rolle hat Ihre Firma auf dieser Baustelle?"
+        if locale == "de"
+        else "Which role does your company have on this site?",
+        reply_markup=get_site_role_kb(locale),
+    )
+    await state.set_state(AddSiteStates.waiting_for_role)
+
+
+@router.callback_query(AddSiteStates.waiting_for_role, F.data.startswith("site_role_"))
+async def process_add_site_role(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    if not can_access_dashboard(current_worker):
+        await state.clear()
+        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    site_name = (data.get("site_name") or "").strip()
+    site_address = (data.get("site_address") or "").strip() or None
+    role = callback.data.removeprefix("site_role_")
+    if not site_name:
+        await state.clear()
+        await callback.message.edit_text("Baustelle konnte nicht erstellt werden. Bitte /add_site erneut starten.")
+        await callback.answer()
+        return
+
+    company = await session.get(Company, current_worker.company_id)
+    site = Site(
+        company_id=current_worker.company_id,
+        name=site_name,
+        address=site_address,
+        description=_site_description_for_role(role),
+        qr_token=f"site_{uuid.uuid4().hex[:16]}",
+        is_active=True,
+    )
+    session.add(site)
+    await session.commit()
+
+    await callback.message.edit_text(
+        f"Baustelle '{site.name}' wird angelegt. QR folgt."
+        if locale == "de"
+        else f"Site '{site.name}' created. QR follows."
+    )
+    if company:
+        await _send_site_qr(callback.message, company, site, locale)
+    await callback.answer()
+    await state.clear()
+
 
 @router.message(Command("add_worker"))
-async def cmd_add_worker(message: Message, state: FSMContext, current_worker: Worker, locale: str):
-    # Legacy admin access remains dashboard-based until the owner permissions slice lands.
+async def cmd_add_worker(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
     if not can_access_dashboard(current_worker):
-        text = "Keine Berechtigung." if locale == "de" else "Немає доступу."
-        await message.answer(text)
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
-        
-    text = "Bitte wählen Sie die Art der Anstellung:" if locale == "de" else "Будь ласка, оберіть тип працевлаштування:"
-    await message.answer(text, reply_markup=get_worker_type_kb(locale))
+
+    await message.answer(
+        "Bitte waehlen Sie die Art der Anstellung:"
+        if locale == "de"
+        else "Please choose the worker type:",
+        reply_markup=get_worker_type_kb(locale),
+    )
     await state.set_state(AddWorkerStates.waiting_for_worker_type)
+
 
 @router.callback_query(AddWorkerStates.waiting_for_worker_type, F.data.startswith("wtype_"))
 async def process_worker_type(callback: CallbackQuery, state: FSMContext, locale: str):
-    wtype = callback.data.split("_")[1]
-    await state.update_data(worker_type=wtype)
-    
-    text = "Wie lautet der vollständige Name des Mitarbeiters?" if locale == "de" else "Як повне ім'я працівника?"
-    await callback.message.edit_text(text, reply_markup=get_cancel_kb(locale))
+    worker_type = callback.data.removeprefix("wtype_")
+    await state.update_data(worker_type=worker_type)
+    await callback.message.edit_text(
+        "Wie lautet der vollstaendige Name des Mitarbeiters?"
+        if locale == "de"
+        else "What is the worker's full name?",
+        reply_markup=get_cancel_kb(locale),
+    )
     await callback.answer()
     await state.set_state(AddWorkerStates.waiting_for_name)
 
+
 @router.message(AddWorkerStates.waiting_for_name)
 async def process_worker_name(message: Message, state: FSMContext, locale: str):
-    name = message.text.strip()
+    name = (message.text or "").strip()
+    if not name or name.startswith("/"):
+        await message.answer("Bitte einen Namen senden." if locale == "de" else "Please send a name.")
+        return
     await state.update_data(name=name)
-    
-    text = "Wie hoch ist der Stundenlohn (in Euro)? Z.B. 15.50" if locale == "de" else "Яка погодинна ставка (в Євро)? Напр. 15.50"
-    await message.answer(text, reply_markup=get_cancel_kb(locale))
+    await message.answer(
+        "Wie hoch ist der Stundenlohn in Euro? Beispiel: 15.50"
+        if locale == "de"
+        else "What is the hourly rate in EUR? Example: 15.50",
+        reply_markup=get_cancel_kb(locale),
+    )
     await state.set_state(AddWorkerStates.waiting_for_hourly_rate)
 
+
 @router.message(AddWorkerStates.waiting_for_hourly_rate)
-async def process_worker_rate(message: Message, state: FSMContext, current_worker: Worker, locale: str):
+async def process_worker_rate(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
     try:
-        rate = float(message.text.replace(",", "."))
+        rate = float((message.text or "").replace(",", "."))
     except ValueError:
-        text = "Bitte geben Sie eine gültige Zahl ein." if locale == "de" else "Будь ласка, введіть дійсне число."
-        await message.answer(text)
+        await message.answer("Bitte geben Sie eine gueltige Zahl ein." if locale == "de" else "Please enter a valid number.")
         return
-        
+
     await state.update_data(rate=rate)
-    
     data = await state.get_data()
-    wtype = data.get("worker_type")
-    
-    if wtype in [WorkerType.FESTANGESTELLT.value, WorkerType.MINIJOB.value]:
-        text = "Wie viele Vertragsstunden pro Woche hat der Mitarbeiter?" if locale == "de" else "Скільки контрактних годин на тиждень?"
-        await message.answer(text, reply_markup=get_cancel_kb(locale))
+    worker_type = data.get("worker_type")
+
+    if worker_type in [WorkerType.FESTANGESTELLT.value, WorkerType.MINIJOB.value]:
+        await message.answer(
+            "Wie viele Vertragsstunden pro Woche hat der Mitarbeiter?"
+            if locale == "de"
+            else "How many contract hours per week?",
+            reply_markup=get_cancel_kb(locale),
+        )
         await state.set_state(AddWorkerStates.waiting_for_contract_hours)
-    else:
-        # Generate invite directly for non-fixed hour workers
+    elif worker_type == WorkerType.SUBUNTERNEHMER.value:
         await generate_invite_link(message, state, current_worker, locale)
+    else:
+        await ask_objektmanager_flag(message, state, locale)
+
 
 @router.message(AddWorkerStates.waiting_for_contract_hours)
-async def process_worker_contract_hours(message: Message, state: FSMContext, current_worker: Worker, locale: str):
+async def process_worker_contract_hours(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
     try:
-        hours_text = message.text.strip().replace(",", ".")
-        hours_float = float(hours_text)
+        hours_float = float((message.text or "").strip().replace(",", "."))
         if not hours_float.is_integer():
             raise ValueError
         hours = int(hours_float)
     except ValueError:
-        text = "Bitte geben Sie eine gueltige ganze Zahl ein." if locale == "de" else "Будь ласка, введіть дійсне ціле число."
-        await message.answer(text)
+        await message.answer("Bitte geben Sie eine gueltige ganze Zahl ein." if locale == "de" else "Please enter a valid whole number.")
         return
-        
-    await state.update_data(contract_hours=hours)
-    await generate_invite_link(message, state, current_worker, locale)
 
-async def generate_invite_link(message: Message, state: FSMContext, current_worker: Worker, locale: str):
+    await state.update_data(contract_hours=hours)
+    await ask_objektmanager_flag(message, state, locale)
+
+
+async def ask_objektmanager_flag(message: Message, state: FSMContext, locale: str):
+    await message.answer(
+        "Soll diese Person auch Objektmanager mit Dashboard-Zugang sein?"
+        if locale == "de"
+        else "Should this person also be an object manager with dashboard access?",
+        reply_markup=get_objektmanager_flag_kb(locale),
+    )
+    await state.set_state(AddWorkerStates.waiting_for_objektmanager_flag)
+
+
+@router.callback_query(AddWorkerStates.waiting_for_objektmanager_flag, F.data.in_(["objmgr_yes", "objmgr_no"]))
+async def process_objektmanager_flag(
+    callback: CallbackQuery,
+    state: FSMContext,
+    current_worker: Worker | None,
+    locale: str,
+):
+    is_objektmanager = callback.data == "objmgr_yes"
+    await state.update_data(
+        access_role=WorkerAccessRole.OBJEKTMANAGER.value if is_objektmanager else WorkerAccessRole.WORKER.value,
+        can_view_dashboard=is_objektmanager,
+    )
+    if locale == "de":
+        text = "Objektmanager-Zugang wird vorbereitet." if is_objektmanager else "Einladung wird vorbereitet."
+    else:
+        text = "Invite is being prepared."
+    await callback.message.edit_text(text)
+    await callback.answer()
+    await generate_invite_link(callback.message, state, current_worker, locale)
+
+
+async def generate_invite_link(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
+    if not current_worker:
+        await state.clear()
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
     data = await state.get_data()
     token = f"inv_{uuid.uuid4().hex[:16]}"
-    
-    # Store pending worker info in Redis for 7 days
     invite_data = {
         "company_id": current_worker.company_id,
         "name": data.get("name"),
         "worker_type": data.get("worker_type"),
         "hourly_rate": data.get("rate"),
         "contract_hours": data.get("contract_hours", 0),
-        "created_by": current_worker.id
+        "created_by": current_worker.id,
+        "access_role": data.get("access_role", WorkerAccessRole.WORKER.value),
+        "can_view_dashboard": bool(data.get("can_view_dashboard", False)),
     }
-    
+
     await redis_client.setex(token, 86400 * 7, json.dumps(invite_data))
-    
     bot_info = await message.bot.get_me()
-    inv_link = f"https://t.me/{bot_info.username}?start={token}"
-    
-    # Generate WhatsApp share link
-    import urllib.parse
-    wa_text = urllib.parse.quote(f"Einladung SEK: {inv_link}")
+    invite_link = f"https://t.me/{bot_info.username}?start={token}"
+
+    wa_text = urllib.parse.quote(f"Einladung BauClock: {invite_link}")
     wa_link = f"https://wa.me/?text={wa_text}"
-    
-    # Generate QR Code Object
-    qr_bio = generate_qr_code(inv_link)
+    qr_bio = generate_qr_code(invite_link)
     qr_file = BufferedInputFile(qr_bio.getvalue(), filename=f"qr_invite_{token}.png")
 
     safe_name = escape(str(data.get("name") or ""))
-    safe_invite_link = escape(inv_link)
+    safe_invite_link = escape(invite_link)
     safe_wa_link = escape(wa_link, quote=True)
+    role_note = ""
+    if invite_data["can_view_dashboard"]:
+        role_note = "\nDashboard-Zugang: Objektmanager" if locale == "de" else "\nDashboard access: object manager"
 
-    text = (
-        f"Einladung fuer {safe_name} erstellt\n\n"
-        "QR-Code zum Scannen:\n\n"
-        "Oder Link teilen:\n"
-        f"{safe_invite_link}\n\n"
-        "Gueltig: 7 Tage\n\n"
-        f"Teilen per: <a href=\"{safe_wa_link}\">WhatsApp</a> · E-Mail · SMS"
-    ) if locale == "de" else (
-        f"Запрошення для {safe_name} створено\n\n"
-        "QR-код для сканування:\n\n"
-        "Або надішліть посилання:\n"
-        f"{safe_invite_link}\n\n"
-        "Дійсно: 7 днів\n\n"
-        f"Поділитися через: <a href=\"{safe_wa_link}\">WhatsApp</a> · E-Mail · SMS"
-    )
+    if locale == "de":
+        text = (
+            f"Einladung fuer {safe_name} erstellt{role_note}\n\n"
+            "QR-Code zum Scannen:\n\n"
+            "Oder Link teilen:\n"
+            f"{safe_invite_link}\n\n"
+            "Gueltig: 7 Tage\n\n"
+            f"Teilen per: <a href=\"{safe_wa_link}\">WhatsApp</a> - E-Mail - SMS"
+        )
+    else:
+        text = (
+            f"Invite for {safe_name} created{role_note}\n\n"
+            "QR code for scanning:\n\n"
+            "Or share this link:\n"
+            f"{safe_invite_link}\n\n"
+            "Valid: 7 days\n\n"
+            f"Share via: <a href=\"{safe_wa_link}\">WhatsApp</a> - E-Mail - SMS"
+        )
 
     await message.answer_photo(photo=qr_file, caption=text, parse_mode=ParseMode.HTML)
     await state.clear()
