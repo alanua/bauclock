@@ -35,6 +35,7 @@ from bot.states.chief_states import (
     AddWorkerStates,
     ChiefRegistrationStates,
     OwnerAlphaOnboardingStates,
+    PartnerCompanyInviteStates,
     PlatformOwnerInviteStates,
 )
 from bot.utils.access import normalize_phone, normalize_username
@@ -47,6 +48,7 @@ from db.models import (
     Company,
     CompanyPublicProfile,
     Site,
+    SitePartnerCompany,
     Worker,
     WorkerAccessRole,
     WorkerType,
@@ -299,6 +301,183 @@ async def _create_subcontractor_company_invite(
     await message.answer(text)
 
 
+async def _get_owned_partner_company(
+    session: AsyncSession,
+    *,
+    owner_telegram_id_hash: str,
+    excluded_company_id: int | None,
+) -> Company | None:
+    stmt = select(Company).where(Company.owner_telegram_id_hash == owner_telegram_id_hash)
+    if excluded_company_id is not None:
+        stmt = stmt.where(Company.id != excluded_company_id)
+    return await session.scalar(stmt.order_by(Company.id))
+
+
+async def _ensure_partner_company_owner_worker(
+    message: Message,
+    session: AsyncSession,
+    company: Company,
+) -> Worker:
+    return await ensure_company_owner_worker(message.from_user, session, company)
+
+
+async def _create_owned_gewerbe_company(
+    message: Message,
+    session: AsyncSession,
+    company_name: str,
+) -> tuple[Company, Worker]:
+    tg_id_str = str(message.from_user.id)
+    company = Company(
+        name=company_name,
+        owner_telegram_id_enc=encrypt_string(tg_id_str),
+        owner_telegram_id_hash=hash_string(tg_id_str),
+    )
+    session.add(company)
+    await session.flush()
+
+    owner = Worker(
+        company_id=company.id,
+        telegram_id_enc=encrypt_string(tg_id_str),
+        telegram_id_hash=hash_string(tg_id_str),
+        full_name_enc=encrypt_string(getattr(message.from_user, "full_name", None) or "Gewerbe Owner"),
+        worker_type=WorkerType.GEWERBE,
+        billing_type=BillingType.HOURLY,
+        access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        can_view_dashboard=True,
+        time_tracking_enabled=False,
+        is_active=True,
+        created_by=None,
+    )
+    session.add(owner)
+    await session.flush()
+    return company, owner
+
+
+async def _accept_partner_company_invite(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    *,
+    token: str,
+    invite_data: dict,
+    partner_company: Company,
+    owner_worker: Worker,
+    locale: str,
+) -> None:
+    site = await session.get(Site, invite_data.get("site_id"))
+    if not site or not site.is_active:
+        await state.clear()
+        await message.answer(
+            "Diese Baustellen-Einladung ist nicht mehr gueltig."
+            if locale == "de"
+            else "This site invite is no longer valid."
+        )
+        return
+
+    existing = await session.scalar(
+        select(SitePartnerCompany).where(
+            SitePartnerCompany.site_id == site.id,
+            SitePartnerCompany.company_id == partner_company.id,
+            SitePartnerCompany.role == "subcontractor",
+            SitePartnerCompany.is_active.is_(True),
+        )
+    )
+    if not existing:
+        session.add(
+            SitePartnerCompany(
+                site_id=site.id,
+                company_id=partner_company.id,
+                role="subcontractor",
+                invited_by_worker_id=invite_data.get("created_by_worker_id"),
+                accepted_by_worker_id=owner_worker.id,
+                is_active=True,
+            )
+        )
+        await session.flush()
+
+    await redis_client.delete(token)
+    await session.commit()
+    await state.clear()
+    await message.answer(
+        f"{partner_company.name} ist jetzt als Subunternehmer mit {site.name} verbunden.\n\n"
+        "Es wird kein neuer QR-Code erstellt. Ihr Gewerbe nutzt den bestehenden SEK-Baustellen-QR."
+        if locale == "de"
+        else (
+            f"{partner_company.name} is now connected to {site.name} as subcontractor.\n\n"
+            "No new QR code is created. Your company uses the existing SEK site QR."
+        )
+    )
+
+
+async def _start_partner_company_invite_acceptance(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    token: str,
+    locale: str,
+) -> None:
+    if not bot_config.is_platform_bot:
+        platform_bot_username = bot_config.PLATFORM_BOT_USERNAME.lstrip("@")
+        await message.answer(
+            f"Bitte oeffnen Sie diese Gewerbe-Einladung in @{platform_bot_username}."
+            if locale == "de"
+            else f"Please open this company invite in @{platform_bot_username}."
+        )
+        return
+    if not _is_platform_superadmin(message):
+        await state.clear()
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    invite_json = await redis_client.get(token)
+    if not invite_json:
+        await state.clear()
+        await message.answer(
+            "Diese Gewerbe-Einladung ist ungueltig oder abgelaufen."
+            if locale == "de"
+            else "This company invite is invalid or expired."
+        )
+        return
+
+    invite_data = json.loads(_as_text(invite_json))
+    if invite_data.get("invite_type") != "subcontractor_company_site":
+        await state.clear()
+        await message.answer(
+            "Diese Gewerbe-Einladung kann nicht verarbeitet werden."
+            if locale == "de"
+            else "This company invite cannot be processed."
+        )
+        return
+
+    tg_hash = hash_string(str(message.from_user.id))
+    partner_company = await _get_owned_partner_company(
+        session,
+        owner_telegram_id_hash=tg_hash,
+        excluded_company_id=invite_data.get("general_contractor_company_id"),
+    )
+    if partner_company:
+        owner_worker = await _ensure_partner_company_owner_worker(message, session, partner_company)
+        await _accept_partner_company_invite(
+            message,
+            state,
+            session,
+            token=token,
+            invite_data=invite_data,
+            partner_company=partner_company,
+            owner_worker=owner_worker,
+            locale=locale,
+        )
+        return
+
+    await state.update_data(partner_invite_token=token, partner_invite_data=invite_data)
+    await message.answer(
+        "Wie heisst Ihr eigenes Gewerbe, das als Subunternehmer beitreten soll?"
+        if locale == "de"
+        else "What is the name of your own company joining as subcontractor?"
+    )
+    await state.set_state(PartnerCompanyInviteStates.waiting_for_company_name)
+
+
 async def _start_owner_invite_acceptance(
     message: Message,
     state: FSMContext,
@@ -385,6 +564,9 @@ async def cmd_start(
         token = parts[1].strip()
         if token.startswith("owner_inv_"):
             await _start_owner_invite_acceptance(message, state, session, current_worker, token, locale)
+            return
+        if token.startswith("partner_inv_"):
+            await _start_partner_company_invite_acceptance(message, state, session, token, locale)
             return
         if token.startswith("site_") or token.startswith("inv_"):
             return
@@ -487,6 +669,52 @@ async def process_owner_invite_company_name(message: Message, state: FSMContext,
 
     await _create_owner_invite(message, (message.text or "").strip(), locale)
     await state.clear()
+
+
+@router.message(PartnerCompanyInviteStates.waiting_for_company_name)
+async def process_partner_company_invite_company_name(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    locale: str,
+):
+    if not bot_config.is_platform_bot or not _is_platform_superadmin(message):
+        await state.clear()
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    company_name = (message.text or "").strip()
+    if not company_name or company_name.startswith("/"):
+        await message.answer(
+            "Bitte senden Sie den Namen Ihres Gewerbes."
+            if locale == "de"
+            else "Please send your company name."
+        )
+        return
+
+    data = await state.get_data()
+    token = data.get("partner_invite_token")
+    invite_data = data.get("partner_invite_data") or {}
+    if not token or invite_data.get("invite_type") != "subcontractor_company_site":
+        await state.clear()
+        await message.answer(
+            "Diese Gewerbe-Einladung ist nicht mehr bereit. Bitte den Link erneut oeffnen."
+            if locale == "de"
+            else "This company invite is no longer ready. Please open the link again."
+        )
+        return
+
+    partner_company, owner_worker = await _create_owned_gewerbe_company(message, session, company_name)
+    await _accept_partner_company_invite(
+        message,
+        state,
+        session,
+        token=token,
+        invite_data=invite_data,
+        partner_company=partner_company,
+        owner_worker=owner_worker,
+        locale=locale,
+    )
 
 
 @router.message(OwnerAlphaOnboardingStates.waiting_for_owner_name)

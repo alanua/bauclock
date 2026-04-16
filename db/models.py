@@ -78,6 +78,7 @@ class Company(Base):
     workers = relationship("Worker", back_populates="company")
     requests = relationship("Request", back_populates="company")
     calendar_events = relationship("CalendarEvent", back_populates="company")
+    site_partnerships = relationship("SitePartnerCompany", back_populates="company")
     public_profile = relationship(
         "CompanyPublicProfile",
         back_populates="company",
@@ -125,6 +126,28 @@ class Site(Base):
     company = relationship("Company", back_populates="sites")
     workers = relationship("Worker", back_populates="site")
     calendar_events = relationship("CalendarEvent", back_populates="site")
+    partner_companies = relationship("SitePartnerCompany", back_populates="site")
+
+
+class SitePartnerCompany(Base):
+    __tablename__ = "site_partner_companies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    role = Column(String(32), nullable=False, default="subcontractor", server_default="subcontractor")
+    invited_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    accepted_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    site = relationship("Site", back_populates="partner_companies")
+    company = relationship("Company", back_populates="site_partnerships")
 
 class Worker(Base):
     __tablename__ = "workers"

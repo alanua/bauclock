@@ -10,6 +10,9 @@ class ChiefRegistrationStates(StatesGroup):
 class PlatformOwnerInviteStates(StatesGroup):
     waiting_for_company_name = State()
 
+class PartnerCompanyInviteStates(StatesGroup):
+    waiting_for_company_name = State()
+
 class OwnerAlphaOnboardingStates(StatesGroup):
     waiting_for_owner_name = State()
     waiting_for_company_name = State()

@@ -93,7 +93,18 @@ def install_import_stubs() -> None:
 install_import_stubs()
 
 from bot.handlers import chief as chief_handler
-from db.models import Base, BillingType, Company, CompanyPublicProfile, Site, Worker, WorkerAccessRole, WorkerType
+from db.models import (
+    Base,
+    BillingType,
+    Company,
+    CompanyPublicProfile,
+    Site,
+    SitePartnerCompany,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
+from db.security import hash_string
 
 
 class FakeState:
@@ -580,5 +591,176 @@ def test_sek_owner_can_create_site_specific_subcontractor_company_invite(monkeyp
         assert "gewerbebot" in message.answer.await_args.args[0]
         assert chief_handler.SEK_ALPHA_SITE_NAME in message.answer.await_args.args[0]
         assert state.current_state is None
+
+    run_db_test(run_test)
+
+
+def test_platform_owner_accepts_partner_invite_with_minimal_gewerbe_name(monkeypatch):
+    async def run_test(session):
+        token = "partner_inv_alpha"
+        redis_payload = {
+            "invite_type": "subcontractor_company_site",
+            "general_contractor_company_id": 1,
+            "site_id": 1,
+            "site_name": chief_handler.SEK_ALPHA_SITE_NAME,
+            "relationship_role": "subcontractor",
+            "target_bot_role": "platform",
+            "target_bot_username": "gewerbebot",
+            "created_by_worker_id": None,
+        }
+        redis_stub = SimpleNamespace(
+            get=AsyncMock(return_value=json.dumps(redis_payload)),
+            delete=AsyncMock(),
+        )
+        monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "platform")
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "gewerbebot")
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_BOT_USERNAME", "gewerbebot")
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+
+        sek_company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="sek_owner_enc",
+            owner_telegram_id_hash="sek_owner_hash",
+        )
+        session.add(sek_company)
+        await session.flush()
+        site = Site(
+            id=1,
+            company_id=sek_company.id,
+            name=chief_handler.SEK_ALPHA_SITE_NAME,
+            qr_token="site_alpha",
+            is_active=True,
+        )
+        session.add(site)
+        await session.commit()
+
+        state = FakeState()
+        message = FakeMessage("AnOleksii")
+        message.text = f"/start {token}"
+
+        await chief_handler.cmd_start(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=None,
+            locale="de",
+        )
+
+        redis_stub.get.assert_awaited_once_with(token)
+        assert state.current_state == chief_handler.PartnerCompanyInviteStates.waiting_for_company_name
+        assert "eigenes Gewerbe" in message.answer.await_args.args[0]
+
+        message.text = "AOV Gewerbe"
+        await chief_handler.process_partner_company_invite_company_name(
+            message=message,
+            state=state,
+            session=session,
+            locale="de",
+        )
+
+        companies = (await session.execute(select(Company).order_by(Company.id))).scalars().all()
+        partner_company = companies[1]
+        owner = (
+            await session.execute(
+                select(Worker).where(
+                    Worker.company_id == partner_company.id,
+                    Worker.access_role == WorkerAccessRole.COMPANY_OWNER.value,
+                )
+            )
+        ).scalar_one()
+        partnership = (await session.execute(select(SitePartnerCompany))).scalar_one()
+        sites = (await session.execute(select(Site))).scalars().all()
+
+        assert partner_company.name == "AOV Gewerbe"
+        assert partner_company.owner_telegram_id_hash == hash_string(str(message.from_user.id))
+        assert owner.worker_type == WorkerType.GEWERBE
+        assert owner.time_tracking_enabled is False
+        assert owner.site_id is None
+        assert partnership.site_id == site.id
+        assert partnership.company_id == partner_company.id
+        assert partnership.role == "subcontractor"
+        assert len(sites) == 1
+        redis_stub.delete.assert_awaited_once_with(token)
+        assert state.current_state is None
+        assert "kein neuer QR-Code" in message.answer.await_args.args[0]
+
+    run_db_test(run_test)
+
+
+def test_platform_owner_accepts_partner_invite_with_existing_own_company(monkeypatch):
+    async def run_test(session):
+        token = "partner_inv_existing"
+        redis_payload = {
+            "invite_type": "subcontractor_company_site",
+            "general_contractor_company_id": 1,
+            "site_id": 1,
+            "site_name": chief_handler.SEK_ALPHA_SITE_NAME,
+            "relationship_role": "subcontractor",
+            "target_bot_role": "platform",
+            "target_bot_username": "gewerbebot",
+            "created_by_worker_id": None,
+        }
+        redis_stub = SimpleNamespace(
+            get=AsyncMock(return_value=json.dumps(redis_payload)),
+            delete=AsyncMock(),
+        )
+        monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "platform")
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "gewerbebot")
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_SUPERADMIN_USERNAMES", ["anoleksii"])
+
+        sek_company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="sek_owner_enc",
+            owner_telegram_id_hash="sek_owner_hash",
+        )
+        own_company = Company(
+            name="AOV Gewerbe",
+            owner_telegram_id_enc="own_enc",
+            owner_telegram_id_hash=hash_string("123456"),
+        )
+        session.add_all([sek_company, own_company])
+        await session.flush()
+        site = Site(
+            id=1,
+            company_id=sek_company.id,
+            name=chief_handler.SEK_ALPHA_SITE_NAME,
+            qr_token="site_alpha",
+            is_active=True,
+        )
+        owner = Worker(
+            company_id=own_company.id,
+            telegram_id_enc="own_enc",
+            telegram_id_hash=hash_string("123456"),
+            full_name_enc="owner_name",
+            worker_type=WorkerType.GEWERBE,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            is_active=True,
+        )
+        session.add_all([site, owner])
+        await session.commit()
+
+        state = FakeState()
+        message = FakeMessage("AnOleksii")
+        message.text = f"/start {token}"
+
+        await chief_handler.cmd_start(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=None,
+            locale="de",
+        )
+
+        partnership = (await session.execute(select(SitePartnerCompany))).scalar_one()
+        assert partnership.site_id == site.id
+        assert partnership.company_id == own_company.id
+        assert state.current_state is None
+        redis_stub.delete.assert_awaited_once_with(token)
+        assert "AOV Gewerbe" in message.answer.await_args.args[0]
 
     run_db_test(run_test)
