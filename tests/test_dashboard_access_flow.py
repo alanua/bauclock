@@ -372,8 +372,35 @@ def test_dashboard_miniapp_bootstrap_denies_non_dashboard_user():
     run_db_test(run_test)
 
 
+def test_dashboard_miniapp_bootstrap_returns_neutral_tetris_for_shared_bot_unauthorized(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(settings, "SHARED_CLIENT_BOT_TOKEN", "shared-test-token")
+        payload = dashboard_router.MiniAppBootstrapRequest(
+            init_data=signed_init_data(876543, bot_token="shared-test-token"),
+        )
+
+        bootstrap = await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
+
+        assert bootstrap == {
+            "auth_mode": "miniapp",
+            "landing": "neutral_tetris",
+        }
+
+    run_db_test(run_test)
+
+
 def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
     async def run_test(session):
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return date(2026, 1, 15)
+
+        class FixedDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 1, 15, 12, 0, tzinfo=tz)
+
         company = await seed_company(session, "management-home")
         site = await seed_site(session, company.id, "management-home")
         manager = await seed_worker(
@@ -390,8 +417,10 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
         not_started = await seed_worker(session, company.id, "management-home-waiting")
         subcontractor = await seed_worker(session, company.id, "management-home-sub")
         subcontractor.worker_type = WorkerType.SUBUNTERNEHMER
-        today = date.today()
-        timestamp = datetime(today.year, today.month, today.day, 8, 0, tzinfo=timezone.utc)
+        monkeypatch.setattr(dashboard_router, "date", FixedDate)
+        monkeypatch.setattr(dashboard_router, "datetime", FixedDatetime)
+        today = FixedDate.today()
+        timestamp = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)
         session.add_all(
             [
                 subcontractor,

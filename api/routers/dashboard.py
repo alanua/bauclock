@@ -19,6 +19,7 @@ from api.services.dashboard_access import (
     get_dashboard_context,
     get_dashboard_worker,
     get_dashboard_role,
+    get_miniapp_bot_role,
     get_miniapp_dashboard_context,
     get_miniapp_private_worker,
 )
@@ -605,6 +606,14 @@ async def dashboard_miniapp_bootstrap(
     try:
         context = await get_miniapp_dashboard_context(payload.init_data, db)
     except DashboardAccessError as exc:
+        try:
+            if get_miniapp_bot_role(payload.init_data) == "shared_client":
+                return {
+                    "auth_mode": "miniapp",
+                    "landing": "neutral_tetris",
+                }
+        except DashboardAccessError:
+            pass
         raise _dashboard_access_denied() from exc
 
     return {

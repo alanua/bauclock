@@ -205,6 +205,8 @@ def test_dashboard_shell_contains_public_landing_fallback():
     html = Path("api/static/dashboard.html").read_text(encoding="utf-8")
 
     assert 'id="publicLandingState"' in html
+    assert 'id="neutralTetrisState"' in html
+    assert "neutral_tetris" in html
     assert "/api/public/company-profile" in html
     assert "loadPublicLanding" in html
     assert "bootstrapMiniApp" in html

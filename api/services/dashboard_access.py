@@ -133,6 +133,18 @@ def _validate_miniapp_init_data(
     raise DashboardAccessError("invalid_miniapp_init_data")
 
 
+def get_miniapp_bot_role(init_data: str | None) -> str:
+    normalized_init_data = (init_data or "").strip()
+    if not normalized_init_data:
+        raise DashboardAccessError("missing_miniapp_init_data")
+
+    _payload, matched_bot = _validate_miniapp_init_data(
+        normalized_init_data,
+        _configured_miniapp_bots(),
+    )
+    return matched_bot.role
+
+
 def _normalize_username(username: str | None) -> str:
     return (username or "").strip().lstrip("@").casefold()
 
