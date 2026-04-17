@@ -15,7 +15,6 @@ from api.services.dashboard_access import (
     DASHBOARD_RESPONSE_HEADERS,
     DashboardContext,
     DashboardAccessError,
-    get_company_present_worker_ids,
     get_dashboard_context,
     get_dashboard_worker,
     get_dashboard_role,
@@ -362,6 +361,16 @@ def _management_role_groups(access_role: str) -> list[str]:
     return ["operations", "entry_points", "people", "requests"]
 
 
+def _management_focus_site_id(context: DashboardContext, access_role: str) -> int | None:
+    if access_role == "objektmanager" and context.worker and context.worker.site_id:
+        return context.worker.site_id
+    return None
+
+
+def _can_view_financial_worker_fields(access_role: str) -> bool:
+    return access_role in {"company_owner", "platform_superadmin", "accountant"}
+
+
 def _dashboard_manager(context: DashboardContext):
     if context.worker:
         return context.worker
@@ -390,8 +399,9 @@ async def _get_company_today_events(
     *,
     company_id: int,
     today: date,
+    site_id: int | None = None,
 ) -> list[TimeEvent]:
-    result = await db.execute(
+    stmt = (
         select(TimeEvent)
         .join(Worker, Worker.id == TimeEvent.worker_id)
         .where(
@@ -402,6 +412,9 @@ async def _get_company_today_events(
         )
         .order_by(TimeEvent.worker_id.asc(), TimeEvent.timestamp.asc(), TimeEvent.id.asc())
     )
+    if site_id is not None:
+        stmt = stmt.where(TimeEvent.site_id == site_id)
+    result = await db.execute(stmt)
     return list(result.scalars().all())
 
 
@@ -526,7 +539,14 @@ async def _serialize_management_sites(
     context: DashboardContext,
 ) -> dict[str, object]:
     access_role = _management_access_role(context)
-    focus_site_id = context.worker.site_id if access_role == "objektmanager" and context.worker else None
+    focus_site_id = _management_focus_site_id(context, access_role)
+    if access_role == "objektmanager" and focus_site_id is None:
+        return {
+            "total": 0,
+            "owned": 0,
+            "joined": 0,
+            "items": [],
+        }
     rows: list[tuple[Site, str, bool, str | None]] = []
 
     own_stmt = select(Site).where(
@@ -616,26 +636,27 @@ def _serialize_management_workers(
     present_ids: set[int],
     events_by_worker: dict[int, list[TimeEvent]],
     now: datetime,
+    include_financial_fields: bool = True,
 ) -> list[dict[str, object]]:
     serialized_workers = []
     for company_worker in workers:
         worker_events = events_by_worker.get(company_worker.id, [])
         status = _worker_status(worker_events)
         minutes = _calculate_day_minutes(worker_events, now)
-        serialized_workers.append(
-            {
-                "id": company_worker.id,
-                "name": decrypt_string(company_worker.full_name_enc),
-                "type": company_worker.worker_type.value,
-                "rate": float(company_worker.hourly_rate or 0),
-                "contract_hours_week": int(company_worker.contract_hours_week or 0),
-                "present_today": company_worker.id in present_ids,
-                "today_status": _status_badge_class(str(status["key"])),
-                "today_status_label": status["label"],
-                "today_work_minutes": minutes["work_minutes"],
-                "today_break_minutes": minutes["break_minutes"],
-            }
-        )
+        item = {
+            "id": company_worker.id,
+            "name": decrypt_string(company_worker.full_name_enc),
+            "type": company_worker.worker_type.value,
+            "present_today": company_worker.id in present_ids,
+            "today_status": _status_badge_class(str(status["key"])),
+            "today_status_label": status["label"],
+            "today_work_minutes": minutes["work_minutes"],
+            "today_break_minutes": minutes["break_minutes"],
+        }
+        if include_financial_fields:
+            item["rate"] = float(company_worker.hourly_rate or 0)
+            item["contract_hours_week"] = int(company_worker.contract_hours_week or 0)
+        serialized_workers.append(item)
     return serialized_workers
 
 
@@ -646,18 +667,33 @@ async def _serialize_partner_groups(
     today: date,
     now: datetime,
 ) -> tuple[list[dict[str, object]], dict[str, int]]:
+    access_role = _management_access_role(context)
+    focus_site_id = _management_focus_site_id(context, access_role)
+    if access_role == "objektmanager" and focus_site_id is None:
+        return [], {
+            "companies": 0,
+            "people": 0,
+            "present": 0,
+            "work_minutes": 0,
+        }
+
+    stmt = (
+        select(SitePartnerCompany, Site, Company)
+        .join(Site, Site.id == SitePartnerCompany.site_id)
+        .join(Company, Company.id == SitePartnerCompany.company_id)
+        .where(
+            Site.company_id == context.company_id,
+            Site.is_active.is_(True),
+            SitePartnerCompany.role == "subcontractor",
+            SitePartnerCompany.is_active.is_(True),
+        )
+        .order_by(Company.name, Site.name)
+    )
+    if focus_site_id is not None:
+        stmt = stmt.where(Site.id == focus_site_id)
     rows = (
         await db.execute(
-            select(SitePartnerCompany, Site, Company)
-            .join(Site, Site.id == SitePartnerCompany.site_id)
-            .join(Company, Company.id == SitePartnerCompany.company_id)
-            .where(
-                Site.company_id == context.company_id,
-                Site.is_active.is_(True),
-                SitePartnerCompany.role == "subcontractor",
-                SitePartnerCompany.is_active.is_(True),
-            )
-            .order_by(Company.name, Site.name)
+            stmt
         )
     ).all()
 
@@ -744,7 +780,13 @@ async def _serialize_management_home(
     today: date,
 ) -> dict[str, object]:
     access_role = _management_access_role(context)
-    today_events = await _get_company_today_events(db, company_id=context.company_id, today=today)
+    focus_site_id = _management_focus_site_id(context, access_role)
+    today_events = await _get_company_today_events(
+        db,
+        company_id=context.company_id,
+        today=today,
+        site_id=focus_site_id,
+    )
     events_by_worker: dict[int, list[TimeEvent]] = {}
     for event in today_events:
         events_by_worker.setdefault(event.worker_id, []).append(event)
@@ -773,16 +815,18 @@ async def _serialize_management_home(
     )
 
     month_start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
-    payments = (
-        await db.execute(
-            select(Payment)
-            .join(Worker, Worker.id == Payment.worker_id)
-            .where(
-                Worker.company_id == context.company_id,
-                Payment.period_start >= month_start,
+    payments = []
+    if _can_view_financial_worker_fields(access_role):
+        payments = (
+            await db.execute(
+                select(Payment)
+                .join(Worker, Worker.id == Payment.worker_id)
+                .where(
+                    Worker.company_id == context.company_id,
+                    Payment.period_start >= month_start,
+                )
             )
-        )
-    ).scalars().all()
+        ).scalars().all()
     pending_payments = [
         payment
         for payment in payments
@@ -915,27 +959,46 @@ async def dashboard_data(
         raise _dashboard_access_denied() from exc
 
     today = date.today()
+    access_role = _management_access_role(context)
+    focus_site_id = _management_focus_site_id(context, access_role)
 
     stmt = select(Worker).where(
         Worker.company_id == context.company_id,
         Worker.is_active.is_(True),
         Worker.time_tracking_enabled.is_(True),
-    ).order_by(Worker.id)
+    )
+    if focus_site_id is not None:
+        stmt = stmt.where(Worker.site_id == focus_site_id)
+    elif access_role == "objektmanager":
+        stmt = stmt.where(Worker.id == -1)
+    stmt = stmt.order_by(Worker.id)
     workers = (await db.execute(stmt)).scalars().all()
     all_workers_stmt = select(Worker).where(
         Worker.company_id == context.company_id,
         Worker.is_active.is_(True),
-    ).order_by(Worker.id)
+    )
+    if focus_site_id is not None:
+        all_workers_stmt = all_workers_stmt.where(Worker.site_id == focus_site_id)
+    elif access_role == "objektmanager":
+        all_workers_stmt = all_workers_stmt.where(Worker.id == (context.worker.id if context.worker else -1))
+    all_workers_stmt = all_workers_stmt.order_by(Worker.id)
     all_workers = (await db.execute(all_workers_stmt)).scalars().all()
-    present_ids = await get_company_present_worker_ids(db, context.company_id, today)
     now = datetime.now(timezone.utc)
-    today_events = await _get_company_today_events(db, company_id=context.company_id, today=today)
+    today_events = await _get_company_today_events(
+        db,
+        company_id=context.company_id,
+        today=today,
+        site_id=focus_site_id,
+    )
+    if access_role == "objektmanager" and focus_site_id is None:
+        today_events = []
+    present_ids = {event.worker_id for event in today_events}
     events_by_worker: dict[int, list[TimeEvent]] = {}
     for event in today_events:
         events_by_worker.setdefault(event.worker_id, []).append(event)
 
     user = _dashboard_context_user(context)
-    user["access_role"] = _management_access_role(context)
+    user["access_role"] = access_role
 
     return {
         "user": user,
@@ -955,6 +1018,7 @@ async def dashboard_data(
             present_ids=present_ids,
             events_by_worker=events_by_worker,
             now=now,
+            include_financial_fields=_can_view_financial_worker_fields(access_role),
         ),
     }
 

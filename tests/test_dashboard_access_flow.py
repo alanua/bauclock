@@ -654,6 +654,97 @@ def test_sek_dashboard_groups_partner_company_without_money_leak(monkeypatch):
     run_db_test(run_test)
 
 
+def test_objektmanager_dashboard_is_scoped_to_focus_site_without_money_fields(monkeypatch):
+    async def run_test(session):
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return date(2026, 1, 15)
+
+        monkeypatch.setattr(dashboard_router, "date", FixedDate)
+        monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
+
+        company = await seed_company(session, "objektmanager-scope")
+        site_a = await seed_site(session, company.id, "focus")
+        site_b = await seed_site(session, company.id, "other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "objektmanager",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            telegram_id=930001,
+            access_role=WorkerAccessRole.OBJEKTMANAGER,
+        )
+        worker_a = await seed_worker(session, company.id, "focus-worker")
+        worker_b = await seed_worker(session, company.id, "other-worker")
+        manager.site_id = site_a.id
+        worker_a.site_id = site_a.id
+        worker_b.site_id = site_b.id
+        worker_a.hourly_rate = 25
+        worker_a.contract_hours_week = 40
+        worker_b.hourly_rate = 35
+        worker_b.contract_hours_week = 30
+        timestamp = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)
+        session.add_all(
+            [
+                TimeEvent(
+                    worker_id=worker_a.id,
+                    site_id=site_a.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+                TimeEvent(
+                    worker_id=worker_b.id,
+                    site_id=site_b.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=timestamp,
+                ),
+                Payment(
+                    worker_id=worker_a.id,
+                    period_start=timestamp,
+                    period_end=timestamp.replace(hour=12),
+                    hours_paid=4,
+                    amount_paid=100,
+                    status=PaymentStatus.PENDING,
+                    payment_type="CONTRACT",
+                ),
+            ]
+        )
+        await session.commit()
+
+        response = await dashboard_router.dashboard_data(
+            token=None,
+            telegram_init_data=signed_init_data(930001),
+            db=session,
+        )
+
+        assert response["user"]["access_role"] == WorkerAccessRole.OBJEKTMANAGER.value
+        assert response["today"]["present"] == 1
+        assert [worker["id"] for worker in response["workers"]] == [worker_a.id]
+        assert "rate" not in response["workers"][0]
+        assert "contract_hours_week" not in response["workers"][0]
+        assert response["management_home"]["finance"] == {
+            "pending_amount": 0,
+            "confirmed_amount": 0,
+            "pending_overtime_hours": 0,
+            "payment_entries": 0,
+        }
+        assert response["management_home"]["sites"]["items"][0]["id"] == site_a.id
+        assert response["management_home"]["sites"]["total"] == 1
+        visible_people_ids = {
+            person["id"]
+            for group in (
+                response["management_home"]["people"]["management"],
+                response["management_home"]["people"]["own_workers"],
+            )
+            for person in group
+        }
+        assert visible_people_ids == {manager.id, worker_a.id}
+
+    run_db_test(run_test)
+
+
 def test_worker_home_miniapp_allows_regular_worker_own_data(monkeypatch):
     async def run_test(session):
         company = await seed_company(session, "worker-home")
