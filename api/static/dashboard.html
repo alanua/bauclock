@@ -979,6 +979,90 @@
       line-height: 1.25;
     }
 
+    .site-card-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .site-card {
+      width: 100%;
+      min-height: 112px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 253, 248, 0.9);
+      box-shadow: var(--worker-shadow-card);
+      padding: 14px;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      display: grid;
+      gap: 10px;
+    }
+
+    .site-card:focus-visible {
+      outline: 3px solid rgba(61, 127, 105, 0.22);
+      outline-offset: 3px;
+    }
+
+    .site-card-head,
+    .site-card-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .site-card-title {
+      font-size: 16px;
+      font-weight: 900;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+
+    .site-card-address,
+    .site-card-note,
+    .site-detail-value {
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .site-detail-panel {
+      border: 1px solid rgba(61, 127, 105, 0.14);
+      border-radius: var(--radius-sm);
+      background: rgba(228, 246, 239, 0.5);
+      box-shadow: var(--worker-shadow-card);
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .site-detail-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .site-detail-item {
+      border-top: 1px solid rgba(58, 76, 67, 0.1);
+      padding-top: 10px;
+    }
+
+    .site-detail-label {
+      color: var(--primary-strong);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .site-detail-link {
+      color: var(--primary-strong);
+      font-weight: 850;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
     .management-entry-card {
       width: 100%;
       min-height: 72px;
@@ -1488,7 +1572,9 @@
       }
 
       .management-card-grid,
-      .management-entry-grid {
+      .management-entry-grid,
+      .site-card-list,
+      .site-detail-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
@@ -2013,6 +2099,19 @@
               <p id="managementEntryState" class="management-entry-state">Schnelleinstiege nutzen bestehende Daten. Eigene Vollseiten folgen separat.</p>
             </div>
           </details>
+
+          <details id="managementSitesSection" class="management-section management-section-wide" data-role-section="operations">
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">Sites</span>
+                <span id="managementSitesSummary" class="worker-action-detail">Aktive Objekte</span>
+              </span>
+            </summary>
+            <div class="management-section-body">
+              <div id="managementSitesList" class="site-card-list"></div>
+              <div id="managementSiteDetail" class="site-detail-panel is-hidden"></div>
+            </div>
+          </details>
         </section>
 
         <details id="managementWorkersSection" class="card workers-card" data-role-section="people" open>
@@ -2174,12 +2273,14 @@
       managementFinanceSection: document.getElementById("managementFinanceSection"),
       managementPartnersSection: document.getElementById("managementPartnersSection"),
       managementEntrySection: document.getElementById("managementEntrySection"),
+      managementSitesSection: document.getElementById("managementSitesSection"),
       managementWorkersSection: document.getElementById("managementWorkersSection"),
       managementRequestsSection: document.getElementById("managementRequestsSection"),
       managementOperationsSummary: document.getElementById("managementOperationsSummary"),
       managementFinanceSummary: document.getElementById("managementFinanceSummary"),
       managementPartnersSummary: document.getElementById("managementPartnersSummary"),
       managementEntrySummary: document.getElementById("managementEntrySummary"),
+      managementSitesSummary: document.getElementById("managementSitesSummary"),
       managementOpsNotCheckedIn: document.getElementById("managementOpsNotCheckedIn"),
       managementOpsUnclosed: document.getElementById("managementOpsUnclosed"),
       managementPendingAmount: document.getElementById("managementPendingAmount"),
@@ -2193,6 +2294,8 @@
       managementCalendarEntryNote: document.getElementById("managementCalendarEntryNote"),
       managementExportsEntryNote: document.getElementById("managementExportsEntryNote"),
       managementEntryState: document.getElementById("managementEntryState"),
+      managementSitesList: document.getElementById("managementSitesList"),
+      managementSiteDetail: document.getElementById("managementSiteDetail"),
       presentCount: document.getElementById("presentCount"),
       presentHint: document.getElementById("presentHint"),
       totalCount: document.getElementById("totalCount"),
@@ -2485,6 +2588,7 @@
       );
       setDetailsOpen(elements.managementPartnersSection, allowed.has("partners") && !isCompact);
       setDetailsOpen(elements.managementEntrySection, allowed.has("entry_points"));
+      setDetailsOpen(elements.managementSitesSection, allowed.has("operations") && !isCompact);
       setDetailsOpen(elements.managementWorkersSection, allowed.has("people") && !isCompact);
       setDetailsOpen(
         elements.managementRequestsSection,
@@ -2607,6 +2711,7 @@
       const homeRequests = home && typeof home === "object" ? home.requests || {} : {};
       const finance = home && typeof home === "object" ? home.finance || {} : {};
       const partners = home && typeof home === "object" ? home.partners || {} : {};
+      const sites = home && typeof home === "object" ? home.sites || {} : {};
       const quickEntries = home && typeof home === "object" ? home.quick_entries || {} : {};
       const workers = Array.isArray(payload?.workers) ? payload.workers : [];
 
@@ -2666,6 +2771,25 @@
                         today_break_minutes: Number(person.today_break_minutes || 0),
                       }))
                     : [],
+                }))
+              : [],
+          },
+          sites: {
+            total: Number(sites.total || 0),
+            owned: Number(sites.owned || 0),
+            joined: Number(sites.joined || 0),
+            items: Array.isArray(sites.items)
+              ? sites.items.map((site) => ({
+                  id: Number(site.id || 0),
+                  name: String(site.name || "Objekt"),
+                  address: site.address ? String(site.address) : "",
+                  role: String(site.role || "general_contractor"),
+                  is_joined_site: Boolean(site.is_joined_site),
+                  owner_company_name: site.owner_company_name ? String(site.owner_company_name) : "",
+                  qr_available: Boolean(site.qr_available),
+                  public_url: site.public_url ? String(site.public_url) : "",
+                  assigned_worker_count: Number(site.assigned_worker_count || 0),
+                  partner_company_count: Number(site.partner_company_count || 0),
                 }))
               : [],
           },
@@ -2859,7 +2983,9 @@
       elements.managementPeopleEntryNote.textContent =
         quickEntries.people === 1 ? "1 Person in der Liste." : `${quickEntries.people} Personen in der Liste.`;
       elements.managementSitesEntryNote.textContent =
-        quickEntries.sites === 1 ? "1 aktives Objekt." : `${quickEntries.sites} aktive Objekte.`;
+        home.sites.joined > 0
+          ? `${quickEntries.sites} Objekte, davon ${home.sites.joined} verbunden.`
+          : (quickEntries.sites === 1 ? "1 aktives Objekt." : `${quickEntries.sites} aktive Objekte.`);
       elements.managementCalendarEntryNote.textContent =
         quickEntries.calendar === 1 ? "1 kommender Eintrag." : `${quickEntries.calendar} kommende Eintraege.`;
       elements.managementExportsEntryNote.textContent =
@@ -2880,6 +3006,7 @@
           : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Gesamtzahl.";
 
       renderPartnerGroups(partners.groups);
+      renderSites(data);
       applyManagementRoleVisibility(data);
       applyManagementDisclosureDefaults(data);
     }
@@ -2925,6 +3052,95 @@
       }).join("");
     }
 
+    function formatSiteRole(value) {
+      const labels = {
+        general_contractor: "Generalunternehmer",
+        subcontractor: "Subunternehmer",
+      };
+      return labels[value] || String(value || "-");
+    }
+
+    function renderSiteDetail(site) {
+      if (!site || !elements.managementSiteDetail) {
+        return;
+      }
+      const ownerCopy = site.is_joined_site && site.owner_company_name
+        ? `<div class="site-detail-item">
+            <div class="site-detail-label">Master Company</div>
+            <div class="site-detail-value">${escapeHtml(site.owner_company_name)}</div>
+          </div>`
+        : "";
+      const publicLink = site.public_url
+        ? `<a class="site-detail-link" href="${escapeHtml(site.public_url)}" target="_blank" rel="noopener">${escapeHtml(site.public_url)}</a>`
+        : `<span class="site-detail-value">Noch kein QR/Public-Link vorhanden.</span>`;
+      elements.managementSiteDetail.innerHTML = `
+        <div>
+          <p class="management-mini-label">Read-only Site Detail</p>
+          <h3 class="site-card-title">${escapeHtml(site.name)}</h3>
+          <p class="site-card-note">${escapeHtml(site.address || "Keine Adresse hinterlegt.")}</p>
+        </div>
+        <div class="site-detail-grid">
+          <div class="site-detail-item">
+            <div class="site-detail-label">Rolle</div>
+            <div class="site-detail-value">${escapeHtml(formatSiteRole(site.role))}</div>
+          </div>
+          <div class="site-detail-item">
+            <div class="site-detail-label">QR / Public Link</div>
+            <div>${publicLink}</div>
+          </div>
+          <div class="site-detail-item">
+            <div class="site-detail-label">Eigene Personen</div>
+            <div class="site-detail-value">${site.assigned_worker_count}</div>
+          </div>
+          <div class="site-detail-item">
+            <div class="site-detail-label">Partnerfirmen</div>
+            <div class="site-detail-value">${site.partner_company_count}</div>
+          </div>
+          ${ownerCopy}
+        </div>
+      `;
+      elements.managementSiteDetail.classList.remove("is-hidden");
+      elements.managementSiteDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function renderSites(data) {
+      const sites = data.management_home.sites;
+      const items = sites.items || [];
+      elements.managementSitesSummary.textContent =
+        items.length === 1 ? "1 aktives Objekt" : `${items.length} aktive Objekte`;
+      if (!items.length) {
+        elements.managementSitesList.innerHTML = `
+          <article class="partner-group-card">
+            <p class="management-mini-label">Sites</p>
+            <p class="management-mini-note">Noch keine aktiven Objekte fuer diesen Kontext.</p>
+          </article>
+        `;
+        elements.managementSiteDetail.classList.add("is-hidden");
+        elements.managementSiteDetail.innerHTML = "";
+        return;
+      }
+
+      elements.managementSitesList.innerHTML = items.map((site) => `
+        <button class="site-card" type="button" data-site-id="${site.id}">
+          <span class="site-card-head">
+            <span>
+              <span class="site-card-title">${escapeHtml(site.name)}</span>
+              <span class="site-card-address">${escapeHtml(site.address || "Keine Adresse hinterlegt.")}</span>
+            </span>
+            <span class="status-badge ${site.qr_available ? "resolved" : "not_started"}">
+              ${site.qr_available ? "QR" : "Kein QR"}
+            </span>
+          </span>
+          <span class="site-card-meta">
+            <span class="site-card-note">${escapeHtml(formatSiteRole(site.role))}</span>
+            <span class="site-card-note">${site.assigned_worker_count} Personen · ${site.partner_company_count} Partner</span>
+          </span>
+        </button>
+      `).join("");
+      elements.managementSiteDetail.classList.add("is-hidden");
+      elements.managementSiteDetail.innerHTML = "";
+    }
+
     function openManagementSection(section) {
       if (!section) {
         return;
@@ -2950,10 +3166,15 @@
       }
 
       if (entry === "sites") {
+        if (elements.managementSitesSection.classList.contains("is-role-hidden")) {
+          setManagementEntryState("Sites ist fuer diese Rolle nicht sichtbar.");
+          return;
+        }
+        openManagementSection(elements.managementSitesSection);
         setManagementEntryState(
           home.quick_entries.sites === 1
-            ? "1 aktives Objekt ist hinterlegt. Ein eigener Sites-Screen folgt separat."
-            : `${home.quick_entries.sites} aktive Objekte sind hinterlegt. Ein eigener Sites-Screen folgt separat.`
+            ? "Sites geoeffnet. 1 aktives Objekt ist sichtbar."
+            : `Sites geoeffnet. ${home.quick_entries.sites} aktive Objekte sind sichtbar.`
         );
         return;
       }
@@ -3639,6 +3860,17 @@
     elements.workerProblemCancelButton.addEventListener("click", () => closeWorkerProblemPanel({ reset: true }));
     document.querySelectorAll("[data-management-entry]").forEach((button) => {
       button.addEventListener("click", () => handleManagementEntry(button.dataset.managementEntry || ""));
+    });
+    elements.managementSitesList.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-site-id]");
+      if (!button || !dashboardData) {
+        return;
+      }
+      const siteId = Number(button.dataset.siteId || 0);
+      const site = dashboardData.management_home.sites.items.find((item) => item.id === siteId);
+      if (site) {
+        renderSiteDetail(site);
+      }
     });
 
     function bindRequestActions(container) {

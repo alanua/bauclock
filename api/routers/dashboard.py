@@ -38,7 +38,7 @@ from db.security import decrypt_string
 
 
 router = APIRouter()
-DASHBOARD_SHELL_VERSION = "20260416-alpha-corridor"
+DASHBOARD_SHELL_VERSION = "20260417-sites-alpha"
 
 
 class MiniAppBootstrapRequest(BaseModel):
@@ -448,6 +448,105 @@ def _status_badge_class(status_key: str) -> str:
     }.get(status_key, "not_started")
 
 
+def _site_role_from_description(description: str | None, default: str) -> str:
+    value = (description or "").casefold()
+    if "subcontractor" in value or "subunternehmer" in value:
+        return "subcontractor"
+    if "general_contractor" in value or "generalunternehmer" in value:
+        return "general_contractor"
+    return default
+
+
+async def _serialize_management_sites(
+    db: AsyncSession,
+    *,
+    context: DashboardContext,
+) -> dict[str, object]:
+    access_role = _management_access_role(context)
+    focus_site_id = context.worker.site_id if access_role == "objektmanager" and context.worker else None
+    rows: list[tuple[Site, str, bool, str | None]] = []
+
+    own_stmt = select(Site).where(
+        Site.company_id == context.company_id,
+        Site.is_active.is_(True),
+    )
+    if focus_site_id:
+        own_stmt = own_stmt.where(Site.id == focus_site_id)
+    own_sites = (await db.execute(own_stmt.order_by(Site.name))).scalars().all()
+    rows.extend(
+        (
+            site,
+            _site_role_from_description(site.description, "general_contractor"),
+            False,
+            None,
+        )
+        for site in own_sites
+    )
+
+    joined_stmt = (
+        select(Site, Company)
+        .join(SitePartnerCompany, SitePartnerCompany.site_id == Site.id)
+        .join(Company, Company.id == Site.company_id)
+        .where(
+            SitePartnerCompany.company_id == context.company_id,
+            SitePartnerCompany.is_active.is_(True),
+            Site.is_active.is_(True),
+        )
+    )
+    if focus_site_id:
+        joined_stmt = joined_stmt.where(Site.id == focus_site_id)
+    joined_rows = (await db.execute(joined_stmt.order_by(Site.name))).all()
+    rows.extend((site, "subcontractor", True, owner_company.name) for site, owner_company in joined_rows)
+
+    items: list[dict[str, object]] = []
+    seen: set[tuple[int, str]] = set()
+    for site, role, is_joined_site, owner_company_name in rows:
+        key = (site.id, role)
+        if key in seen:
+            continue
+        seen.add(key)
+        assigned_worker_count = await db.scalar(
+            select(func.count(Worker.id)).where(
+                Worker.company_id == context.company_id,
+                Worker.site_id == site.id,
+                Worker.is_active.is_(True),
+                Worker.time_tracking_enabled.is_(True),
+            )
+        )
+        partner_company_count = 0
+        if site.company_id == context.company_id:
+            partner_company_count = int(
+                await db.scalar(
+                    select(func.count(SitePartnerCompany.id)).where(
+                        SitePartnerCompany.site_id == site.id,
+                        SitePartnerCompany.is_active.is_(True),
+                    )
+                )
+                or 0
+            )
+        items.append(
+            {
+                "id": site.id,
+                "name": site.name,
+                "address": site.address,
+                "role": role,
+                "is_joined_site": is_joined_site,
+                "owner_company_name": owner_company_name,
+                "qr_available": bool(site.qr_token),
+                "public_url": f"/s/{site.qr_token}" if site.qr_token else None,
+                "assigned_worker_count": int(assigned_worker_count or 0),
+                "partner_company_count": partner_company_count,
+            }
+        )
+
+    return {
+        "total": len(items),
+        "owned": sum(1 for item in items if not item["is_joined_site"]),
+        "joined": sum(1 for item in items if item["is_joined_site"]),
+        "items": items,
+    }
+
+
 def _serialize_management_workers(
     workers: list[Worker],
     *,
@@ -590,17 +689,12 @@ async def _serialize_management_home(
         today=today,
         now=now,
     )
+    sites = await _serialize_management_sites(db, context=context)
 
     open_request_count = await db.scalar(
         select(func.count(Request.id)).where(
             Request.company_id == context.company_id,
             Request.status == RequestStatus.OPEN.value,
-        )
-    )
-    active_site_count = await db.scalar(
-        select(func.count(Site.id)).where(
-            Site.company_id == context.company_id,
-            Site.is_active.is_(True),
         )
     )
     upcoming_calendar_count = await db.scalar(
@@ -680,9 +774,10 @@ async def _serialize_management_home(
             "partner_work_minutes": partner_totals["work_minutes"],
             "groups": partner_groups,
         },
+        "sites": sites,
         "quick_entries": {
             "people": len(workers),
-            "sites": int(active_site_count or 0),
+            "sites": int(sites["total"]),
             "calendar": int(upcoming_calendar_count or 0),
             "exports": len(payments),
         },

@@ -418,6 +418,8 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
         not_started = await seed_worker(session, company.id, "management-home-waiting")
         subcontractor = await seed_worker(session, company.id, "management-home-sub")
         subcontractor.worker_type = WorkerType.SUBUNTERNEHMER
+        for site_worker in (working, on_break, not_started, subcontractor):
+            site_worker.site_id = site.id
         monkeypatch.setattr(dashboard_router, "date", FixedDate)
         monkeypatch.setattr(dashboard_router, "datetime", FixedDatetime)
         today = FixedDate.today()
@@ -496,6 +498,15 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
         assert home["partners"]["subcontractor_workers"] == 1
         assert home["quick_entries"]["sites"] == 1
         assert home["quick_entries"]["calendar"] == 1
+        assert home["sites"]["total"] == 1
+        assert home["sites"]["owned"] == 1
+        assert home["sites"]["joined"] == 0
+        assert home["sites"]["items"][0]["name"] == site.name
+        assert home["sites"]["items"][0]["role"] == "general_contractor"
+        assert home["sites"]["items"][0]["qr_available"] is True
+        assert home["sites"]["items"][0]["public_url"] == f"/s/{site.qr_token}"
+        assert home["sites"]["items"][0]["assigned_worker_count"] == 4
+        assert home["sites"]["items"][0]["partner_company_count"] == 0
         workers_by_name = {worker["name"]: worker for worker in response["workers"]}
         assert workers_by_name["name_enc_management-home-working"]["today_status"] == "working"
         assert workers_by_name["name_enc_management-home-break"]["today_status"] == "on_break"
@@ -595,6 +606,10 @@ def test_sek_dashboard_groups_partner_company_without_money_leak(monkeypatch):
         assert partner_person["today_work_minutes"] > 0
         assert "rate" not in partner_person
         assert "contract_hours_week" not in partner_person
+        sek_site_item = sek_response["management_home"]["sites"]["items"][0]
+        assert sek_site_item["id"] == site.id
+        assert sek_site_item["role"] == "general_contractor"
+        assert sek_site_item["partner_company_count"] == 1
 
         partner_response = await dashboard_router.dashboard_data(
             token=None,
@@ -604,6 +619,13 @@ def test_sek_dashboard_groups_partner_company_without_money_leak(monkeypatch):
         partner_worker_ids = [worker["id"] for worker in partner_response["workers"]]
         assert partner_worker_ids == [partner_worker.id]
         assert partner_response["management_home"]["partners"]["groups"] == []
+        partner_site_item = partner_response["management_home"]["sites"]["items"][0]
+        assert partner_site_item["id"] == site.id
+        assert partner_site_item["role"] == "subcontractor"
+        assert partner_site_item["is_joined_site"] is True
+        assert partner_site_item["owner_company_name"] == sek_company.name
+        assert partner_site_item["assigned_worker_count"] == 1
+        assert partner_site_item["partner_company_count"] == 0
         assert sek_worker.id not in partner_worker_ids
 
     run_db_test(run_test)
