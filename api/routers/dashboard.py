@@ -38,7 +38,7 @@ from db.security import decrypt_string
 
 
 router = APIRouter()
-DASHBOARD_SHELL_VERSION = "20260417-people-alpha"
+DASHBOARD_SHELL_VERSION = "20260417-alpha-support"
 
 
 class MiniAppBootstrapRequest(BaseModel):
@@ -817,6 +817,14 @@ async def _serialize_management_home(
     elif access_role == "accountant":
         scope_label = "Abrechnung und Meldungen"
 
+    people_payload = await _serialize_management_people(
+        db,
+        people=people,
+        events_by_worker=events_by_worker,
+        now=now,
+    )
+    qr_site_count = sum(1 for item in sites["items"] if item["qr_available"])
+
     return {
         "access_role": access_role,
         "role_groups": _management_role_groups(access_role),
@@ -842,12 +850,17 @@ async def _serialize_management_home(
             "groups": partner_groups,
         },
         "sites": sites,
-        "people": await _serialize_management_people(
-            db,
-            people=people,
-            events_by_worker=events_by_worker,
-            now=now,
-        ),
+        "people": people_payload,
+        "alpha_support": {
+            "people_total": int(people_payload["total"]),
+            "own_workers": len(people_payload["own_workers"]),
+            "management_roles": len(people_payload["management"]),
+            "sites_total": int(sites["total"]),
+            "sites_with_qr": int(qr_site_count),
+            "joined_sites": int(sites["joined"]),
+            "open_requests": int(open_request_count or 0),
+            "ready_for_time_test": bool(people_payload["own_workers"] and qr_site_count),
+        },
         "quick_entries": {
             "people": len(people),
             "sites": int(sites["total"]),
