@@ -3234,10 +3234,11 @@
         : "";
       const publicLink = site.public_url
         ? `<a class="site-detail-link" href="${escapeHtml(site.public_url)}" target="_blank" rel="noopener">${escapeHtml(site.public_url)}</a>`
-        : `<span class="site-detail-value">Noch kein QR/Public-Link vorhanden.</span>`;
+        : `<span class="site-detail-value">Noch kein QR-Link vorhanden.</span>`;
+      const qrState = site.qr_available ? "QR bereit" : "QR fehlt";
       elements.managementSiteDetail.innerHTML = `
         <div>
-          <p class="management-mini-label">Read-only Site Detail</p>
+          <p class="management-mini-label">Objektdetail</p>
           <h3 class="site-card-title">${escapeHtml(site.name)}</h3>
           <p class="site-card-note">${escapeHtml(site.address || "Keine Adresse hinterlegt.")}</p>
         </div>
@@ -3247,7 +3248,8 @@
             <div class="site-detail-value">${escapeHtml(formatSiteRole(site.role))}</div>
           </div>
           <div class="site-detail-item">
-            <div class="site-detail-label">QR / Public Link</div>
+            <div class="site-detail-label">QR und oeffentlicher Link</div>
+            <div class="site-detail-value">${qrState}</div>
             <div>${publicLink}</div>
           </div>
           <div class="site-detail-item">
@@ -3273,8 +3275,8 @@
       if (!items.length) {
         elements.managementSitesList.innerHTML = `
           <article class="partner-group-card">
-            <p class="management-mini-label">Sites</p>
-            <p class="management-mini-note">Noch keine aktiven Objekte fuer diesen Kontext.</p>
+            <p class="management-mini-label">Objekte</p>
+            <p class="management-mini-note">Noch keine aktiven Objekte. Neue Baustellen werden ueber /add_site im passenden Bot angelegt.</p>
           </article>
         `;
         elements.managementSiteDetail.classList.add("is-hidden");
@@ -3295,7 +3297,7 @@
           </span>
           <span class="site-card-meta">
             <span class="site-card-note">${escapeHtml(formatSiteRole(site.role))}</span>
-            <span class="site-card-note">${site.assigned_worker_count} Personen · ${site.partner_company_count} Partner</span>
+            <span class="site-card-note">${site.qr_available ? "QR bereit" : "QR fehlt"} · ${site.assigned_worker_count} Personen · ${site.partner_company_count} Partner</span>
           </span>
         </button>
       `).join("");

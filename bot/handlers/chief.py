@@ -272,7 +272,7 @@ def _owner_next_steps_text(company: Company, profile_slug: str | None, locale: s
 
 def _site_description_for_role(role: str) -> str:
     label = {"general_contractor": "Generalunternehmer"}.get(role, role)
-    return f"Rolle: {label} (Alpha)"
+    return f"Rolle: {label}"
 
 
 def _safe_filename(value: str) -> str:
@@ -327,9 +327,9 @@ async def _send_site_qr(message: Message, company: Company, site: Site, locale: 
 
     text = (
         f"Baustelle '{site.name}' erstellt.\n\n"
-        "Der QR-Code ist fuer den Bot-Zeiterfassungsfluss bereit: Ankunft, Pause, Feierabend."
+        "Der QR-Code ist bereit fuer Ankunft, Pause und Feierabend. Der gleiche Code bleibt der Master-QR fuer diese Baustelle."
         if locale == "de"
-        else f"Site '{site.name}' created.\n\nThe QR code is ready for the bot time flow."
+        else f"Site '{site.name}' created.\n\nThe QR code is ready for arrival, breaks, and checkout. The same code remains the master QR for this site."
     )
     pdf_caption = "Druckfertiges A4-PDF fuer die Baustelle." if locale == "de" else "Print-ready A4 PDF for the site."
     await message.answer_photo(qr_file, caption=text)
@@ -385,9 +385,9 @@ async def _create_subcontractor_company_invite(
     site = await _get_alpha_sek_site(session, current_worker.company_id)
     if not site:
         await message.answer(
-            "Die Alpha-Baustelle wurde nicht gefunden. Bitte zuerst die SEK-Baustelle pruefen."
+            "Die SEK-Baustelle wurde nicht gefunden. Bitte zuerst die Baustellenliste pruefen."
             if locale == "de"
-            else "The alpha site was not found. Please check the SEK site first."
+            else "The SEK site was not found. Please check the site list first."
         )
         return
 
@@ -1548,9 +1548,9 @@ async def process_add_site_role(
     await session.commit()
 
     await callback.message.edit_text(
-        f"Baustelle '{site.name}' wird angelegt. QR folgt."
+        f"Baustelle '{site.name}' wurde angelegt. QR-Code und Objektlink folgen jetzt."
         if locale == "de"
-        else f"Site '{site.name}' created. QR follows."
+        else f"Site '{site.name}' created. QR code and site link follow now."
     )
     if company:
         await _send_site_qr(callback.message, company, site, locale)

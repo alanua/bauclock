@@ -636,7 +636,7 @@ def test_owner_company_profile_legal_form_updates_canonical_field_and_generated_
     run_db_test(run_test)
 
 
-def test_owner_add_site_creates_site_with_alpha_role(monkeypatch):
+def test_owner_add_site_creates_site_with_product_role(monkeypatch):
     async def run_test(session):
         company = Company(
             name="Alpha Bau",
@@ -673,8 +673,9 @@ def test_owner_add_site_creates_site_with_alpha_role(monkeypatch):
         assert site.company_id == company.id
         assert site.name == "Alpha Baustelle"
         assert site.address == "Baustrasse 2"
-        assert site.description == "Rolle: Generalunternehmer (Alpha)"
+        assert site.description == "Rolle: Generalunternehmer"
         assert site.qr_token.startswith("site_")
+        assert "Objektlink" in callback.message.edit_text.await_args.args[0]
         send_qr.assert_awaited_once()
 
     run_db_test(run_test)

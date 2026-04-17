@@ -81,7 +81,7 @@ def get_role_rights_confirm_kb(locale: str, *, expanded: bool = False) -> Inline
 
 
 def get_site_role_kb(locale: str) -> InlineKeyboardMarkup:
-    role_text = "Generalunternehmer (Alpha)" if locale == "de" else "General contractor (alpha)"
+    role_text = "Generalunternehmer" if locale == "de" else "General contractor"
     cancel_text = "Abbrechen" if locale == "de" else "Cancel"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=role_text, callback_data="site_role_general_contractor")],
