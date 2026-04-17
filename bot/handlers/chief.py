@@ -355,6 +355,7 @@ async def _create_owned_gewerbe_company(
     tg_id_str = str(message.from_user.id)
     company = Company(
         name=company_name,
+        legal_form="gewerbe",
         owner_telegram_id_enc=encrypt_string(tg_id_str),
         owner_telegram_id_hash=hash_string(tg_id_str),
     )
@@ -1024,6 +1025,7 @@ async def process_owner_alpha_company_email(
     tg_id_str = str(message.from_user.id)
     company = Company(
         name=company_name,
+        legal_form=company_legal_form,
         email=company_email,
         owner_telegram_id_enc=encrypt_string(tg_id_str),
         owner_telegram_id_hash=hash_string(tg_id_str),

@@ -69,6 +69,7 @@ class Company(Base):
     name = Column(String, nullable=False)
     owner_telegram_id_enc = Column(String, nullable=False)
     owner_telegram_id_hash = Column(String, nullable=False, index=True)
+    legal_form = Column(String(32), nullable=True)
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
     website = Column(String, nullable=True)

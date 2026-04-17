@@ -467,6 +467,7 @@ def test_owner_alpha_onboarding_creates_owner_company_and_public_profile(monkeyp
         profile = (await session.execute(select(CompanyPublicProfile))).scalar_one()
 
         assert company.name == "Alpha Bau"
+        assert company.legal_form == "gmbh"
         assert company.email == "owner@example.test"
         assert owner.company_id == company.id
         assert owner.access_role == WorkerAccessRole.COMPANY_OWNER.value
