@@ -26,7 +26,8 @@ from bot.keyboards.chief_kb import (
     get_cancel_kb,
     get_company_legal_form_kb,
     get_company_profile_edit_kb,
-    get_objektmanager_flag_kb,
+    get_person_access_role_kb,
+    get_role_rights_confirm_kb,
     get_site_role_kb,
     get_worker_type_kb,
 )
@@ -1645,12 +1646,146 @@ async def process_worker_contract_hours(message: Message, state: FSMContext, cur
 
 async def ask_objektmanager_flag(message: Message, state: FSMContext, locale: str):
     await message.answer(
-        "Soll diese Person auch Objektmanager mit Dashboard-Zugang sein?"
+        "Welche Grundrolle bekommt diese Person?"
         if locale == "de"
-        else "Should this person also be an object manager with dashboard access?",
-        reply_markup=get_objektmanager_flag_kb(locale),
+        else "Which base role should this person have?",
+        reply_markup=get_person_access_role_kb(locale),
     )
-    await state.set_state(AddWorkerStates.waiting_for_objektmanager_flag)
+    await state.set_state(AddWorkerStates.waiting_for_access_role)
+
+
+def _role_invite_intro(locale: str, access_role: str, *, expanded: bool = False) -> str:
+    if access_role == WorkerAccessRole.OBJEKTMANAGER.value:
+        if locale == "de":
+            lines = [
+                "Rolle: Objektmanager",
+                "Der Owner delegiert operative Rechte fuer zugewiesene Objekte.",
+            ]
+            if expanded:
+                lines.extend([
+                    "",
+                    "Rollenrechte:",
+                    "- Anwesenheit und Arbeitszeit im Objektkontext sehen",
+                    "- Meldungen und operative Tagesuebersicht bearbeiten",
+                    "- Keine Abrechnung, Zahlungen oder Plattformbereiche",
+                ])
+            return "\n".join(lines)
+        lines = [
+            "Role: object manager",
+            "The owner delegates operational rights for assigned sites.",
+        ]
+        if expanded:
+            lines.extend([
+                "",
+                "Role rights:",
+                "- View presence and working time in assigned site context",
+                "- Handle requests and the operational daily overview",
+                "- No accounting, payments, or platform areas",
+            ])
+        return "\n".join(lines)
+
+    if locale == "de":
+        lines = [
+            "Rolle: Accountant",
+            "Der Owner delegiert Abrechnungs- und Meldungszugang.",
+        ]
+        if expanded:
+            lines.extend([
+                "",
+                "Rollenrechte:",
+                "- Abrechnungssummen und Export-Einstieg sehen",
+                "- Offene Meldungen mit Abrechnungsbezug sehen",
+                "- Keine Worker-Steuerung und keine Objektleitung",
+            ])
+        return "\n".join(lines)
+    lines = [
+        "Role: accountant",
+        "The owner delegates accounting and request access.",
+    ]
+    if expanded:
+        lines.extend([
+            "",
+            "Role rights:",
+            "- View accounting summaries and export entry points",
+            "- View open requests relevant to accounting",
+            "- No worker steering and no site management",
+        ])
+    return "\n".join(lines)
+
+
+@router.callback_query(AddWorkerStates.waiting_for_access_role, F.data.startswith("person_role_"))
+async def process_person_access_role(
+    callback: CallbackQuery,
+    state: FSMContext,
+    current_worker: Worker | None,
+    locale: str,
+):
+    access_role = callback.data.removeprefix("person_role_")
+    if access_role not in {
+        WorkerAccessRole.WORKER.value,
+        WorkerAccessRole.OBJEKTMANAGER.value,
+        WorkerAccessRole.ACCOUNTANT.value,
+    }:
+        await callback.answer()
+        return
+
+    has_dashboard_access = access_role in {
+        WorkerAccessRole.OBJEKTMANAGER.value,
+        WorkerAccessRole.ACCOUNTANT.value,
+    }
+    await state.update_data(
+        access_role=access_role,
+        can_view_dashboard=has_dashboard_access,
+    )
+
+    if not has_dashboard_access:
+        text = (
+            "Worker ohne Managementrechte. Einladung wird vorbereitet."
+            if locale == "de"
+            else "Worker without management rights. Invite is being prepared."
+        )
+        await callback.message.edit_text(text)
+        await callback.answer()
+        await generate_invite_link(callback.message, state, current_worker, locale)
+        return
+
+    await callback.message.edit_text(
+        _role_invite_intro(locale, access_role, expanded=False),
+        reply_markup=get_role_rights_confirm_kb(locale, expanded=False),
+    )
+    await callback.answer()
+    await state.set_state(AddWorkerStates.waiting_for_role_rights_confirmation)
+
+
+@router.callback_query(
+    AddWorkerStates.waiting_for_role_rights_confirmation,
+    F.data.in_(["role_rights_show", "role_rights_hide", "role_rights_confirm"]),
+)
+async def process_role_rights_confirmation(
+    callback: CallbackQuery,
+    state: FSMContext,
+    current_worker: Worker | None,
+    locale: str,
+):
+    data = await state.get_data()
+    access_role = data.get("access_role", WorkerAccessRole.WORKER.value)
+    if callback.data == "role_rights_confirm":
+        text = (
+            "Rolle bestaetigt. Einladung wird vorbereitet."
+            if locale == "de"
+            else "Role confirmed. Invite is being prepared."
+        )
+        await callback.message.edit_text(text)
+        await callback.answer()
+        await generate_invite_link(callback.message, state, current_worker, locale)
+        return
+
+    expanded = callback.data == "role_rights_show"
+    await callback.message.edit_text(
+        _role_invite_intro(locale, access_role, expanded=expanded),
+        reply_markup=get_role_rights_confirm_kb(locale, expanded=expanded),
+    )
+    await callback.answer()
 
 
 @router.callback_query(AddWorkerStates.waiting_for_objektmanager_flag, F.data.in_(["objmgr_yes", "objmgr_no"]))
@@ -1661,8 +1796,9 @@ async def process_objektmanager_flag(
     locale: str,
 ):
     is_objektmanager = callback.data == "objmgr_yes"
+    access_role = WorkerAccessRole.OBJEKTMANAGER.value if is_objektmanager else WorkerAccessRole.WORKER.value
     await state.update_data(
-        access_role=WorkerAccessRole.OBJEKTMANAGER.value if is_objektmanager else WorkerAccessRole.WORKER.value,
+        access_role=access_role,
         can_view_dashboard=is_objektmanager,
     )
     if locale == "de":
@@ -1707,7 +1843,14 @@ async def generate_invite_link(message: Message, state: FSMContext, current_work
     safe_wa_link = escape(wa_link, quote=True)
     role_note = ""
     if invite_data["can_view_dashboard"]:
-        role_note = "\nDashboard-Zugang: Objektmanager" if locale == "de" else "\nDashboard access: object manager"
+        role_label = (
+            "Objektmanager"
+            if invite_data["access_role"] == WorkerAccessRole.OBJEKTMANAGER.value
+            else "Accountant"
+            if invite_data["access_role"] == WorkerAccessRole.ACCOUNTANT.value
+            else "Dashboard"
+        )
+        role_note = f"\nDashboard-Zugang: {role_label}" if locale == "de" else f"\nDashboard access: {role_label}"
 
     if locale == "de":
         text = (

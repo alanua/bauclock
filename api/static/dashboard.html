@@ -1102,6 +1102,32 @@
       overflow-wrap: anywhere;
     }
 
+    .people-rights {
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.72);
+      padding: 8px 10px;
+    }
+
+    .people-rights summary {
+      cursor: pointer;
+      color: var(--text-main);
+      font-size: 13px;
+      font-weight: 900;
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+    }
+
+    .people-rights ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
     .management-entry-card {
       width: 100%;
       min-height: 72px;
@@ -3300,6 +3326,7 @@
                   ${escapeHtml(person.access_role_label)} · ${escapeHtml(formatWorkerType(person.worker_type))}
                   ${person.site_name ? ` · ${escapeHtml(person.site_name)}` : " · kein Objekt"}
                 </div>
+                ${renderPersonRights(person)}
               </div>
               <span class="status-badge ${escapeHtml(person.today_status)}">${escapeHtml(person.today_status_label)}</span>
             </div>
@@ -3316,6 +3343,37 @@
         renderPeopleGroup("Eigene Arbeiter", people.own_workers, "Noch keine eigenen Arbeiter angelegt."),
         renderPeopleGroup("Objektmanager / Accountant / Owner", people.management, "Noch keine Management-Rollen angelegt."),
       ].join("");
+    }
+
+    function getRoleRights(person) {
+      if (person.access_role === "objektmanager") {
+        return [
+          "Anwesenheit und Arbeitszeit im zugewiesenen Objektkontext sehen",
+          "Operative Tagesuebersicht und Meldungen bearbeiten",
+          "Keine Abrechnung, Zahlungen oder Plattformbereiche",
+        ];
+      }
+      if (person.access_role === "accountant") {
+        return [
+          "Abrechnungssummen und Export-Einstieg sehen",
+          "Offene Meldungen mit Abrechnungsbezug sehen",
+          "Keine Worker-Steuerung und keine Objektleitung",
+        ];
+      }
+      return [];
+    }
+
+    function renderPersonRights(person) {
+      const rights = getRoleRights(person);
+      if (!rights.length) {
+        return "";
+      }
+      return `
+        <details class="people-rights">
+          <summary>Delegierte Rechte</summary>
+          <ul>${rights.map((right) => `<li>${escapeHtml(right)}</li>`).join("")}</ul>
+        </details>
+      `;
     }
 
     function renderAlphaSupport(data) {

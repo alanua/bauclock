@@ -680,6 +680,101 @@ def test_owner_add_site_creates_site_with_alpha_role(monkeypatch):
     run_db_test(run_test)
 
 
+def test_owner_adds_plain_worker_without_management_rights(monkeypatch):
+    async def run_test():
+        generate_invite = AsyncMock()
+        monkeypatch.setattr(chief_handler, "generate_invite_link", generate_invite)
+
+        state = FakeState()
+        await state.update_data(
+            worker_type=WorkerType.FESTANGESTELLT.value,
+            name="Plain Worker",
+            rate=18,
+            contract_hours=40,
+        )
+        callback = SimpleNamespace(
+            data=f"person_role_{WorkerAccessRole.WORKER.value}",
+            message=SimpleNamespace(edit_text=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        current_worker = SimpleNamespace(id=1, company_id=1, is_active=True, can_view_dashboard=True)
+
+        await chief_handler.process_person_access_role(
+            callback=callback,
+            state=state,
+            current_worker=current_worker,
+            locale="de",
+        )
+
+        data = await state.get_data()
+        assert data["access_role"] == WorkerAccessRole.WORKER.value
+        assert data["can_view_dashboard"] is False
+        assert "ohne Managementrechte" in callback.message.edit_text.await_args.args[0]
+        assert "Rollenrechte" not in callback.message.edit_text.await_args.args[0]
+        generate_invite.assert_awaited_once()
+
+    asyncio.run(run_test())
+
+
+def test_owner_adds_accountant_with_collapsible_rights_confirmation(monkeypatch):
+    async def run_test():
+        generate_invite = AsyncMock()
+        monkeypatch.setattr(chief_handler, "generate_invite_link", generate_invite)
+
+        state = FakeState()
+        await state.update_data(
+            worker_type=WorkerType.FESTANGESTELLT.value,
+            name="Accountant Person",
+            rate=0,
+            contract_hours=0,
+        )
+        callback = SimpleNamespace(
+            data=f"person_role_{WorkerAccessRole.ACCOUNTANT.value}",
+            message=SimpleNamespace(edit_text=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        current_worker = SimpleNamespace(id=1, company_id=1, is_active=True, can_view_dashboard=True)
+
+        await chief_handler.process_person_access_role(
+            callback=callback,
+            state=state,
+            current_worker=current_worker,
+            locale="de",
+        )
+
+        data = await state.get_data()
+        assert data["access_role"] == WorkerAccessRole.ACCOUNTANT.value
+        assert data["can_view_dashboard"] is True
+        assert state.current_state == chief_handler.AddWorkerStates.waiting_for_role_rights_confirmation
+        collapsed_text = callback.message.edit_text.await_args.args[0]
+        assert "Accountant" in collapsed_text
+        assert "Rollenrechte" not in collapsed_text
+        generate_invite.assert_not_awaited()
+
+        callback.data = "role_rights_show"
+        await chief_handler.process_role_rights_confirmation(
+            callback=callback,
+            state=state,
+            current_worker=current_worker,
+            locale="de",
+        )
+        expanded_text = callback.message.edit_text.await_args.args[0]
+        assert "Rollenrechte" in expanded_text
+        assert "Abrechnungssummen" in expanded_text
+        assert "Objektleitung" in expanded_text
+
+        callback.data = "role_rights_confirm"
+        await chief_handler.process_role_rights_confirmation(
+            callback=callback,
+            state=state,
+            current_worker=current_worker,
+            locale="de",
+        )
+        generate_invite.assert_awaited_once()
+
+    asyncio.run(run_test())
+
+
 def test_sek_owner_can_create_site_specific_subcontractor_company_invite(monkeypatch):
     async def run_test(session):
         redis_stub = SimpleNamespace(setex=AsyncMock())

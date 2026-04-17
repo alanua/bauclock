@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db.models import WorkerType
+from db.models import WorkerAccessRole, WorkerType
 
 
 LEGAL_FORM_OPTIONS = [
@@ -37,6 +37,45 @@ def get_objektmanager_flag_kb(locale: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=yes_text, callback_data="objmgr_yes")],
         [InlineKeyboardButton(text=no_text, callback_data="objmgr_no")],
+        [InlineKeyboardButton(text=cancel_text, callback_data="cancel_action")],
+    ])
+
+
+def get_person_access_role_kb(locale: str) -> InlineKeyboardMarkup:
+    cancel_text = "Abbrechen" if locale == "de" else "Cancel"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="Worker" if locale == "de" else "Worker",
+                callback_data=f"person_role_{WorkerAccessRole.WORKER.value}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Objektmanager" if locale == "de" else "Object manager",
+                callback_data=f"person_role_{WorkerAccessRole.OBJEKTMANAGER.value}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Accountant" if locale == "de" else "Accountant",
+                callback_data=f"person_role_{WorkerAccessRole.ACCOUNTANT.value}",
+            )
+        ],
+        [InlineKeyboardButton(text=cancel_text, callback_data="cancel_action")],
+    ])
+
+
+def get_role_rights_confirm_kb(locale: str, *, expanded: bool = False) -> InlineKeyboardMarkup:
+    toggle_text = "Rechte ausblenden" if expanded and locale == "de" else "Rechte anzeigen"
+    if locale != "de":
+        toggle_text = "Hide rights" if expanded else "Show rights"
+    confirm_text = "Einladung erstellen" if locale == "de" else "Create invite"
+    cancel_text = "Abbrechen" if locale == "de" else "Cancel"
+    toggle_data = "role_rights_hide" if expanded else "role_rights_show"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=toggle_text, callback_data=toggle_data)],
+        [InlineKeyboardButton(text=confirm_text, callback_data="role_rights_confirm")],
         [InlineKeyboardButton(text=cancel_text, callback_data="cancel_action")],
     ])
 

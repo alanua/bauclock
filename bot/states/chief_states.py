@@ -36,6 +36,8 @@ class AddWorkerStates(StatesGroup):
     waiting_for_contract_hours = State()
     waiting_for_name = State()
     waiting_for_objektmanager_flag = State()
+    waiting_for_access_role = State()
+    waiting_for_role_rights_confirmation = State()
 
 class AssignPartnerSiteTeamStates(StatesGroup):
     waiting_for_selection = State()
