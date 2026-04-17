@@ -2,7 +2,7 @@ import asyncio
 import importlib
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import ModuleType, SimpleNamespace
@@ -327,6 +327,172 @@ def test_joined_gewerbe_worker_can_use_existing_sek_qr_for_checkin():
     run_db_test(run_test)
 
 
+def test_worker_cannot_use_unrelated_company_site_qr():
+    async def run_test(session):
+        owner_company = Company(
+            name="Owner Bau",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        worker_company = Company(
+            name="Other Bau",
+            owner_telegram_id_enc="other_enc",
+            owner_telegram_id_hash="other_hash",
+        )
+        session.add_all([owner_company, worker_company])
+        await session.flush()
+        site = Site(
+            company_id=owner_company.id,
+            name="Owner Site",
+            qr_token="site_private",
+            is_active=True,
+        )
+        worker = Worker(
+            company_id=worker_company.id,
+            telegram_id_enc="worker_enc",
+            telegram_id_hash="worker_hash",
+            full_name_enc="Other Worker",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            is_active=True,
+        )
+        session.add_all([site, worker])
+        await session.commit()
+
+        state = FakeState()
+        await state.update_data(pending_event=EventType.CHECKIN.value)
+        message = FakeMessage("/start site_private")
+
+        await worker_handler.cmd_start_site(message, state, session, worker, "de")
+
+        assert state.data == {}
+        assert state.clear_count == 1
+        assert "nicht freigegeben" in message.answer.await_args.args[0]
+
+    run_db_test(run_test)
+
+
+def test_forged_location_state_cannot_create_time_event_for_unrelated_site():
+    async def run_test(session):
+        owner_company = Company(
+            name="Owner Bau",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        worker_company = Company(
+            name="Other Bau",
+            owner_telegram_id_enc="other_enc",
+            owner_telegram_id_hash="other_hash",
+        )
+        session.add_all([owner_company, worker_company])
+        await session.flush()
+        site = Site(
+            company_id=owner_company.id,
+            name="Owner Site",
+            qr_token="site_private",
+            is_active=True,
+        )
+        worker = Worker(
+            company_id=worker_company.id,
+            telegram_id_enc="worker_enc",
+            telegram_id_hash="worker_hash",
+            full_name_enc="Other Worker",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            is_active=True,
+        )
+        session.add_all([site, worker])
+        await session.commit()
+
+        state = FakeState()
+        await state.update_data(pending_event=EventType.CHECKIN.value, site_id=site.id)
+        message = FakeMessage()
+        message.location = SimpleNamespace(latitude=52.0, longitude=13.0, horizontal_accuracy=5)
+
+        await worker_handler.process_location(message, state, session, worker, "de")
+
+        events = (await session.execute(select(TimeEvent))).scalars().all()
+        assert events == []
+        assert state.data == {}
+        assert "nicht freigegeben" in message.answer.await_args.args[0]
+
+    run_db_test(run_test)
+
+
+def test_worker_time_flow_blocks_impossible_first_pause_end():
+    async def run_test(session):
+        worker = await seed_worker(session)
+        site = Site(
+            company_id=worker.company_id,
+            name="Trusted Site",
+            qr_token="site_trusted",
+            is_active=True,
+        )
+        session.add(site)
+        await session.commit()
+
+        state = FakeState()
+        await state.update_data(pending_event=EventType.PAUSE_END.value, site_id=site.id)
+        message = FakeMessage()
+        message.location = SimpleNamespace(latitude=52.0, longitude=13.0, horizontal_accuracy=5)
+
+        await worker_handler.process_location(message, state, session, worker, "de")
+
+        events = (await session.execute(select(TimeEvent))).scalars().all()
+        assert events == []
+        assert "Tagesstatus" in message.answer.await_args.args[0]
+
+    run_db_test(run_test)
+
+
+def test_worker_time_flow_blocks_events_after_checkout():
+    async def run_test(session):
+        worker = await seed_worker(session)
+        site = Site(
+            company_id=worker.company_id,
+            name="Trusted Site",
+            qr_token="site_trusted",
+            is_active=True,
+        )
+        session.add(site)
+        await session.flush()
+        now = datetime.now(timezone.utc)
+        session.add_all(
+            [
+                TimeEvent(
+                    worker_id=worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=now - timedelta(hours=8),
+                ),
+                TimeEvent(
+                    worker_id=worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKOUT,
+                    timestamp=now - timedelta(hours=1),
+                ),
+            ]
+        )
+        await session.commit()
+
+        state = FakeState()
+        await state.update_data(pending_event=EventType.PAUSE_START.value, site_id=site.id)
+        message = FakeMessage()
+        message.location = SimpleNamespace(latitude=52.0, longitude=13.0, horizontal_accuracy=5)
+
+        await worker_handler.process_location(message, state, session, worker, "de")
+
+        events = (await session.execute(select(TimeEvent).order_by(TimeEvent.id))).scalars().all()
+        assert [event.event_type for event in events] == [EventType.CHECKIN, EventType.CHECKOUT]
+        assert "Tagesstatus" in message.answer.await_args.args[0]
+
+    run_db_test(run_test)
+
+
 def test_choosing_problem_date_mode(monkeypatch):
     async def run_test():
         monkeypatch.setattr(worker_handler, "_problem_today", lambda: date(2026, 4, 10))
@@ -448,5 +614,69 @@ def test_worker_invite_can_create_objektmanager_dashboard_access(monkeypatch):
         assert created.employment_status == EmploymentStatus.ACTIVE.value
         assert created.started_at is not None
         redis_stub.delete.assert_awaited_once_with("inv_objektmanager")
+
+    run_db_test(run_test)
+
+
+def test_hired_worker_cannot_accept_second_active_company_invite(monkeypatch):
+    async def run_test(session):
+        first_company = Company(
+            name="First Bau",
+            owner_telegram_id_enc="first_owner_enc",
+            owner_telegram_id_hash="first_owner_hash",
+        )
+        second_company = Company(
+            name="Second Bau",
+            owner_telegram_id_enc="second_owner_enc",
+            owner_telegram_id_hash="second_owner_hash",
+        )
+        session.add_all([first_company, second_company])
+        await session.flush()
+        existing_worker = Worker(
+            company_id=first_company.id,
+            telegram_id_enc="telegram_enc_existing",
+            telegram_id_hash=worker_handler.hash_string("999888"),
+            full_name_enc="Existing Worker",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        session.add(existing_worker)
+        await session.commit()
+
+        state = FakeState()
+        await state.update_data(
+            token="inv_second_company",
+            invite_data={
+                "company_id": second_company.id,
+                "name": "Second Worker",
+                "worker_type": WorkerType.FESTANGESTELLT.value,
+                "hourly_rate": 22,
+                "contract_hours": 40,
+                "created_by": existing_worker.id,
+                "access_role": WorkerAccessRole.WORKER.value,
+                "can_view_dashboard": False,
+                "employment_type": EmploymentType.EMPLOYEE_FULL_TIME.value,
+                "employment_status": EmploymentStatus.ACTIVE.value,
+            },
+        )
+        redis_stub = SimpleNamespace(delete=AsyncMock())
+        monkeypatch.setattr(worker_handler, "redis_client", redis_stub)
+        callback = SimpleNamespace(
+            from_user=SimpleNamespace(id=999888),
+            message=SimpleNamespace(reply_markup=None, answer=AsyncMock(), edit_text=AsyncMock()),
+        )
+
+        await worker_handler.handle_language_selection(callback, state, session, "de")
+
+        workers = (await session.execute(select(Worker).order_by(Worker.id))).scalars().all()
+        assert workers == [existing_worker]
+        redis_stub.delete.assert_not_awaited()
+        assert "anderen Firma" in callback.message.answer.await_args.args[0]
+        assert state.current_state is None
 
     run_db_test(run_test)

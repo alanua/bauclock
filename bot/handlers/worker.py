@@ -40,6 +40,12 @@ from bot.i18n.translations import t
 from bot.redis_cache import redis_client
 from bot.utils.location import haversine
 from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_context_only_text
+from db.integrity import (
+    DataTrustError,
+    find_active_hired_membership,
+    is_hired_membership,
+    validate_time_event_context,
+)
 from db.request_service import create_request
 
 router = Router()
@@ -198,6 +204,36 @@ def _time_tracking_disabled_text(locale: str) -> str:
     return t("time_tracking_disabled", locale)
 
 
+def _data_trust_error_text(error: DataTrustError, locale: str) -> str:
+    if error.code == "site_not_allowed":
+        return (
+            "Dieser QR-Code ist fuer Ihr Konto nicht freigegeben."
+            if locale == "de"
+            else "This QR code is not available for your account."
+        )
+    if error.code == "invalid_time_sequence":
+        return (
+            "Diese Aktion passt nicht zu Ihrem aktuellen Tagesstatus. Bitte waehlen Sie die passende Aktion im Menue."
+            if locale == "de"
+            else "This action does not match your current day status. Please choose the matching action in the menu."
+        )
+    if error.code == "time_tracking_disabled":
+        return _time_tracking_disabled_text(locale)
+    return (
+        "Diese Aktion konnte nicht sicher gespeichert werden. Bitte erneut starten."
+        if locale == "de"
+        else "This action could not be saved safely. Please start again."
+    )
+
+
+def _hired_membership_conflict_text(locale: str) -> str:
+    return (
+        "Diese Einladung kann nicht angenommen werden, weil dieses Telegram-Konto bereits als aktiver Mitarbeiter in einer anderen Firma registriert ist."
+        if locale == "de"
+        else "This invite cannot be accepted because this Telegram account is already registered as an active employee in another company."
+    )
+
+
 TIME_EVENT_ACTIONS = {
     "Ankunft": EventType.CHECKIN,
     "Arrival": EventType.CHECKIN,
@@ -317,11 +353,32 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
     employment_status = invite_data.get("employment_status")
     if employment_status not in {item.value for item in EmploymentStatus}:
         employment_status = EmploymentStatus.ACTIVE.value
+    employment_type = _employment_type_from_invite(invite_data, access_role)
+    telegram_id_hash = hash_string(tg_id_str)
+
+    if is_hired_membership(
+        worker_type=invite_data["worker_type"],
+        employment_type=employment_type,
+        access_role=access_role,
+    ):
+        existing_hired_membership = await find_active_hired_membership(
+            session,
+            telegram_id_hash=telegram_id_hash,
+            exclude_company_id=invite_data["company_id"],
+        )
+        if existing_hired_membership:
+            await state.clear()
+            text = _hired_membership_conflict_text(lang_val)
+            if callback.message.reply_markup:
+                await callback.message.edit_text(text)
+            else:
+                await callback.message.answer(text)
+            return
 
     new_worker = Worker(
         company_id=invite_data["company_id"],
         telegram_id_enc=encrypt_string(tg_id_str),
-        telegram_id_hash=hash_string(tg_id_str),
+        telegram_id_hash=telegram_id_hash,
         full_name_enc=encrypt_string(invite_data["name"]),
         worker_type=invite_data["worker_type"],
         billing_type="HOURLY" if invite_data["worker_type"] != "SUBUNTERNEHMER" else "FIXED",
@@ -331,7 +388,7 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
         access_role=access_role,
         can_view_dashboard=can_view_dashboard,
         time_tracking_enabled=True,
-        employment_type=_employment_type_from_invite(invite_data, access_role),
+        employment_type=employment_type,
         employment_status=employment_status,
         started_at=datetime.now(timezone.utc),
         is_active=True,
@@ -600,6 +657,19 @@ async def cmd_start_site(message: Message, state: FSMContext, session: AsyncSess
         await message.answer(await _public_site_text(session, site))
         return
 
+    try:
+        await validate_time_event_context(
+            session,
+            worker=current_worker,
+            site=site,
+            next_event_type=next_event,
+            target_date=today,
+        )
+    except DataTrustError as exc:
+        await state.clear()
+        await message.answer(_data_trust_error_text(exc, locale))
+        return
+
     await state.update_data(pending_event=next_event.value, site_id=site.id)
     text = (
         f"Baustelle: {site.name}\n"
@@ -707,6 +777,29 @@ async def process_location(message: Message, state: FSMContext, session: AsyncSe
     
     # 1. Fetch site to validate distance
     site = await session.get(Site, site_id)
+    try:
+        next_event = EventType(pending_event)
+        await validate_time_event_context(
+            session,
+            worker=current_worker,
+            site=site,
+            next_event_type=next_event,
+        )
+    except (ValueError, DataTrustError) as exc:
+        from aiogram.types import ReplyKeyboardRemove
+
+        text = (
+            _data_trust_error_text(exc, locale)
+            if isinstance(exc, DataTrustError)
+            else (
+                "Diese Aktion konnte nicht sicher gespeichert werden. Bitte erneut starten."
+                if locale == "de"
+                else "This action could not be saved safely. Please start again."
+            )
+        )
+        await message.answer(text, reply_markup=ReplyKeyboardRemove())
+        await state.clear()
+        return
     is_suspicious = False
     
     # Validate GPS if site has a radius configured
@@ -746,7 +839,7 @@ async def process_location(message: Message, state: FSMContext, session: AsyncSe
     event = TimeEvent(
         worker_id=current_worker.id,
         site_id=site.id,
-        event_type=EventType(pending_event),
+        event_type=next_event,
         lat=lat,
         lon=lon,
         gps_accuracy_m=accuracy,

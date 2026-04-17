@@ -58,6 +58,7 @@ from bot.utils.owner_worker import ensure_company_owner_worker
 from bot.utils.pdf import generate_site_pdf
 from bot.utils.qr import generate_qr_code
 from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_context_only_text
+from db.integrity import DataTrustError, validate_worker_site_context
 from db.models import (
     BillingType,
     Company,
@@ -599,6 +600,14 @@ async def _accept_partner_company_invite(
             "Diese Baustellen-Einladung ist nicht mehr gueltig."
             if locale == "de"
             else "This site invite is no longer valid."
+        )
+        return
+    if site.company_id != invite_data.get("general_contractor_company_id") or site.company_id == partner_company.id:
+        await state.clear()
+        await message.answer(
+            "Diese Baustellen-Einladung passt nicht mehr zur Firma oder Baustelle."
+            if locale == "de"
+            else "This site invite no longer matches the company or site."
         )
         return
 
@@ -1287,6 +1296,16 @@ async def process_assign_partner_site_team_selection(
             else "Assignment is no longer ready. Please start again."
         )
         return
+    try:
+        await validate_worker_site_context(session, worker=current_worker, site=site)
+    except DataTrustError:
+        await state.clear()
+        await message.answer(
+            "Diese Baustelle ist fuer Ihre Firma nicht verfuegbar."
+            if locale == "de"
+            else "This site is not available for your company."
+        )
+        return
 
     raw = (message.text or "").strip().lower()
     if raw in {"/cancel", "cancel", "abbrechen"}:
@@ -1329,6 +1348,16 @@ async def process_assign_partner_site_team_selection(
         )
     ).scalars().all()
     for worker in workers:
+        try:
+            await validate_worker_site_context(session, worker=worker, site=site)
+        except DataTrustError:
+            await state.clear()
+            await message.answer(
+                "Eine ausgewaehlte Person passt nicht sicher zu dieser Baustelle. Bitte erneut starten."
+                if locale == "de"
+                else "One selected person does not safely match this site. Please start again."
+            )
+            return
         worker.site_id = site.id
         session.add(worker)
     await session.commit()
