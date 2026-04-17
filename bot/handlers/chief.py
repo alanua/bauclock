@@ -25,6 +25,7 @@ from bot.keyboards.chief_kb import (
     LEGAL_FORM_OPTIONS,
     get_cancel_kb,
     get_company_legal_form_kb,
+    get_company_profile_edit_kb,
     get_objektmanager_flag_kb,
     get_site_role_kb,
     get_worker_type_kb,
@@ -34,6 +35,7 @@ from bot.states.chief_states import (
     AddSiteStates,
     AddWorkerStates,
     AssignPartnerSiteTeamStates,
+    CompanyProfileEditStates,
     ChiefRegistrationStates,
     OwnerAlphaOnboardingStates,
     PartnerCompanyInviteStates,
@@ -122,6 +124,25 @@ def _legal_form_label(value: str | None) -> str:
     return labels.get(str(value or ""), "Sonstiges")
 
 
+def _generated_public_subtitle(legal_form: str | None) -> str:
+    return f"Bauunternehmen - {_legal_form_label(legal_form)}"
+
+
+def _generated_public_about(company_name: str, legal_form: str | None) -> str:
+    return (
+        f"{company_name} ({_legal_form_label(legal_form)}) nutzt BauClock "
+        "fuer Zeiterfassung und Baustellenkoordination."
+    )
+
+
+def _looks_generated_public_subtitle(value: str | None) -> bool:
+    return (value or "").startswith("Bauunternehmen - ")
+
+
+def _looks_generated_public_about(value: str | None) -> bool:
+    return "nutzt BauClock fuer Zeiterfassung und Baustellenkoordination" in (value or "")
+
+
 def _slug_base(company_name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", company_name.lower()).strip("-")
     return slug[:48].strip("-") or "company"
@@ -142,6 +163,82 @@ async def _unique_company_slug(session: AsyncSession, company_name: str) -> str:
         suffix += 1
 
 
+def _can_edit_company_profile(worker: Worker | None) -> bool:
+    return bool(
+        worker
+        and worker.is_active
+        and worker.can_view_dashboard
+        and worker.access_role == WorkerAccessRole.COMPANY_OWNER.value
+    )
+
+
+async def _ensure_company_public_profile(
+    session: AsyncSession,
+    company: Company,
+) -> CompanyPublicProfile:
+    profile = await session.scalar(
+        select(CompanyPublicProfile).where(CompanyPublicProfile.company_id == company.id)
+    )
+    if profile:
+        return profile
+
+    profile = CompanyPublicProfile(
+        company_id=company.id,
+        slug=await _unique_company_slug(session, company.name),
+        company_name=company.name,
+        subtitle=_generated_public_subtitle(company.legal_form),
+        about_text=_generated_public_about(company.name, company.legal_form),
+        address="Adresse folgt",
+        email=company.email,
+        is_active=True,
+    )
+    session.add(profile)
+    await session.flush()
+    return profile
+
+
+def _company_profile_summary(company: Company, profile: CompanyPublicProfile, locale: str) -> str:
+    if locale == "de":
+        return "\n".join([
+            "Firmenprofil",
+            "",
+            f"Name: {company.name}",
+            f"Rechtsform: {_legal_form_label(company.legal_form)}",
+            f"Adresse: {profile.address or '-'}",
+            f"E-Mail: {profile.email or '-'}",
+            f"Untertitel: {profile.subtitle}",
+            f"Kurztext: {profile.about_text}",
+            "",
+            "Was soll geaendert werden?",
+        ])
+    return "\n".join([
+        "Company profile",
+        "",
+        f"Name: {company.name}",
+        f"Legal form: {_legal_form_label(company.legal_form)}",
+        f"Address: {profile.address or '-'}",
+        f"Email: {profile.email or '-'}",
+        f"Subtitle: {profile.subtitle}",
+        f"About: {profile.about_text}",
+        "",
+        "What should be changed?",
+    ])
+
+
+async def _send_company_profile_menu(
+    message: Message,
+    session: AsyncSession,
+    company: Company,
+    locale: str,
+) -> None:
+    profile = await _ensure_company_public_profile(session, company)
+    await session.commit()
+    await message.answer(
+        _company_profile_summary(company, profile, locale),
+        reply_markup=get_company_profile_edit_kb(locale),
+    )
+
+
 def _owner_next_steps_text(company: Company, profile_slug: str | None, locale: str) -> str:
     public_url = f"{bot_config.APP_URL.rstrip('/')}/c/{profile_slug}" if profile_slug else ""
     lines = [
@@ -150,6 +247,7 @@ def _owner_next_steps_text(company: Company, profile_slug: str | None, locale: s
         "Ihr Owner-Zugang ist aktiv.",
         "",
         "Empfohlene naechste Schritte:",
+        "0. /company_profile - Firmendaten pruefen",
         "1. /add_worker - erste Person anlegen",
         "2. /add_site - erste Baustelle mit QR anlegen",
         "3. /dashboard - Management Home oeffnen",
@@ -160,10 +258,11 @@ def _owner_next_steps_text(company: Company, profile_slug: str | None, locale: s
             "",
             "Your owner access is active.",
             "",
-            "Next steps:",
-            "1. /add_worker - create the first person",
-            "2. /add_site - create the first site and QR",
-            "3. /dashboard - open management home",
+        "Next steps:",
+        "0. /company_profile - check company details",
+        "1. /add_worker - create the first person",
+        "2. /add_site - create the first site and QR",
+        "3. /dashboard - open management home",
         ]
     if public_url:
         lines.extend(["", f"Oeffentliche Firmenseite: {public_url}" if locale == "de" else f"Public company page: {public_url}"])
@@ -570,6 +669,194 @@ async def _start_owner_invite_acceptance(
 async def cancel_action(callback: CallbackQuery, state: FSMContext, locale: str):
     await state.clear()
     await callback.message.edit_text("Aktion abgebrochen." if locale == "de" else "Action cancelled.")
+    await callback.answer()
+
+
+@router.message(Command("company_profile"))
+async def cmd_company_profile(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    if not _can_edit_company_profile(current_worker):
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    company = await session.get(Company, current_worker.company_id)
+    if not company:
+        await message.answer("Firma nicht gefunden." if locale == "de" else "Company not found.")
+        return
+
+    await state.clear()
+    await _send_company_profile_menu(message, session, company, locale)
+
+
+@router.callback_query(F.data == "company_profile_done")
+async def finish_company_profile_edit(callback: CallbackQuery, state: FSMContext, locale: str):
+    await state.clear()
+    await callback.message.edit_text(
+        "Firmenprofil gespeichert." if locale == "de" else "Company profile saved."
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("company_profile_edit_"))
+async def choose_company_profile_edit_field(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    if not _can_edit_company_profile(current_worker):
+        await state.clear()
+        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.answer()
+        return
+
+    company = await session.get(Company, current_worker.company_id)
+    if not company:
+        await state.clear()
+        await callback.message.edit_text("Firma nicht gefunden." if locale == "de" else "Company not found.")
+        await callback.answer()
+        return
+
+    field = callback.data.removeprefix("company_profile_edit_")
+    await state.update_data(company_profile_field=field)
+    if field == "legal_form":
+        await callback.message.edit_text(
+            "Bitte Rechtsform waehlen." if locale == "de" else "Please choose a legal form.",
+            reply_markup=get_company_legal_form_kb(locale),
+        )
+        await state.set_state(CompanyProfileEditStates.waiting_for_legal_form)
+        await callback.answer()
+        return
+
+    prompts = {
+        "name": "Neuen Firmennamen senden." if locale == "de" else "Send the new company name.",
+        "address": "Neue Adresse senden." if locale == "de" else "Send the new address.",
+        "email": "Neue E-Mail senden oder /skip zum Leeren." if locale == "de" else "Send the new email or /skip to clear it.",
+        "subtitle": "Kurzen Untertitel fuer die oeffentliche Seite senden." if locale == "de" else "Send a short public subtitle.",
+        "about": "Kurzen Text fuer die oeffentliche Seite senden." if locale == "de" else "Send a short public about text.",
+    }
+    prompt = prompts.get(field)
+    if not prompt:
+        await state.clear()
+        await callback.message.edit_text("Unbekanntes Feld." if locale == "de" else "Unknown field.")
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(prompt)
+    await callback.answer()
+    await state.set_state(CompanyProfileEditStates.waiting_for_value)
+
+
+@router.message(CompanyProfileEditStates.waiting_for_value)
+async def process_company_profile_value(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    if not _can_edit_company_profile(current_worker):
+        await state.clear()
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    data = await state.get_data()
+    field = data.get("company_profile_field")
+    value = (message.text or "").strip()
+    if field != "email" and (not value or value.startswith("/")):
+        await message.answer("Bitte einen Wert senden." if locale == "de" else "Please send a value.")
+        return
+
+    company = await session.get(Company, current_worker.company_id)
+    if not company:
+        await state.clear()
+        await message.answer("Firma nicht gefunden." if locale == "de" else "Company not found.")
+        return
+
+    profile = await _ensure_company_public_profile(session, company)
+    if field == "name":
+        old_name = company.name
+        company.name = value
+        profile.company_name = value
+        if _looks_generated_public_about(profile.about_text) or old_name in (profile.about_text or ""):
+            profile.about_text = _generated_public_about(value, company.legal_form)
+    elif field == "address":
+        profile.address = value
+    elif field == "email":
+        clean_email = None if _skip_value(value) else value or None
+        company.email = clean_email
+        profile.email = clean_email
+    elif field == "subtitle":
+        profile.subtitle = value
+    elif field == "about":
+        profile.about_text = value
+    else:
+        await state.clear()
+        await message.answer("Unbekanntes Feld." if locale == "de" else "Unknown field.")
+        return
+
+    await session.commit()
+    await state.clear()
+    await message.answer("Gespeichert." if locale == "de" else "Saved.")
+    await _send_company_profile_menu(message, session, company, locale)
+
+
+@router.callback_query(CompanyProfileEditStates.waiting_for_legal_form, F.data.startswith("legal_form_"))
+async def process_company_profile_legal_form(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    if not _can_edit_company_profile(current_worker):
+        await state.clear()
+        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.answer()
+        return
+
+    legal_form = callback.data.removeprefix("legal_form_")
+    allowed_values = {value for value, _label in LEGAL_FORM_OPTIONS}
+    if legal_form not in allowed_values:
+        await callback.answer()
+        await callback.message.answer(
+            "Bitte waehlen Sie eine Rechtsform aus der Liste."
+            if locale == "de"
+            else "Please choose a legal form from the list."
+        )
+        return
+
+    company = await session.get(Company, current_worker.company_id)
+    if not company:
+        await state.clear()
+        await callback.message.edit_text("Firma nicht gefunden." if locale == "de" else "Company not found.")
+        await callback.answer()
+        return
+
+    profile = await _ensure_company_public_profile(session, company)
+    if _looks_generated_public_subtitle(profile.subtitle):
+        profile.subtitle = _generated_public_subtitle(legal_form)
+    if _looks_generated_public_about(profile.about_text):
+        profile.about_text = _generated_public_about(company.name, legal_form)
+    company.legal_form = legal_form
+    await session.commit()
+    await state.clear()
+
+    await callback.message.edit_text(
+        f"Rechtsform gespeichert: {_legal_form_label(legal_form)}"
+        if locale == "de"
+        else f"Legal form saved: {_legal_form_label(legal_form)}"
+    )
+    await callback.message.answer(
+        _company_profile_summary(company, profile, locale),
+        reply_markup=get_company_profile_edit_kb(locale),
+    )
     await callback.answer()
 
 

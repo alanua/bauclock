@@ -484,6 +484,126 @@ def test_owner_alpha_onboarding_creates_owner_company_and_public_profile(monkeyp
     run_db_test(run_test)
 
 
+def test_owner_company_profile_edit_updates_company_and_public_profile():
+    async def run_test(session):
+        company = Company(
+            name="Alpha Bau",
+            legal_form="gmbh",
+            email="old@example.test",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        session.add(company)
+        await session.flush()
+        owner = Worker(
+            company_id=company.id,
+            telegram_id_enc="owner_enc",
+            telegram_id_hash="owner_hash",
+            full_name_enc="Owner",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            is_active=True,
+        )
+        profile = CompanyPublicProfile(
+            company_id=company.id,
+            slug="alpha-bau",
+            company_name="Alpha Bau",
+            subtitle="Bauunternehmen - GmbH",
+            about_text="Alpha Bau (GmbH) nutzt BauClock fuer Zeiterfassung und Baustellenkoordination.",
+            address="Altstrasse 1",
+            email="old@example.test",
+            is_active=True,
+        )
+        session.add_all([owner, profile])
+        await session.commit()
+
+        state = FakeState()
+        await state.update_data(company_profile_field="name")
+        message = FakeMessage("owner")
+        message.text = "Alpha Neu"
+
+        await chief_handler.process_company_profile_value(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        assert company.name == "Alpha Neu"
+        assert profile.company_name == "Alpha Neu"
+        assert "Alpha Neu" in profile.about_text
+        assert state.current_state is None
+        assert message.answer.await_count == 2
+        assert "Gespeichert" in message.answer.await_args_list[0].args[0]
+
+    run_db_test(run_test)
+
+
+def test_owner_company_profile_legal_form_updates_canonical_field_and_generated_copy():
+    async def run_test(session):
+        company = Company(
+            name="Alpha Bau",
+            legal_form="gmbh",
+            email="owner@example.test",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash="owner_hash",
+        )
+        session.add(company)
+        await session.flush()
+        owner = Worker(
+            company_id=company.id,
+            telegram_id_enc="owner_enc",
+            telegram_id_hash="owner_hash",
+            full_name_enc="Owner",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            is_active=True,
+        )
+        profile = CompanyPublicProfile(
+            company_id=company.id,
+            slug="alpha-bau",
+            company_name="Alpha Bau",
+            subtitle="Bauunternehmen - GmbH",
+            about_text="Alpha Bau (GmbH) nutzt BauClock fuer Zeiterfassung und Baustellenkoordination.",
+            address="Altstrasse 1",
+            email="owner@example.test",
+            is_active=True,
+        )
+        session.add_all([owner, profile])
+        await session.commit()
+
+        state = FakeState()
+        callback = SimpleNamespace(
+            data="legal_form_gewerbe",
+            message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+
+        await chief_handler.process_company_profile_legal_form(
+            callback=callback,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        assert company.legal_form == "gewerbe"
+        assert profile.subtitle == "Bauunternehmen - Gewerbe"
+        assert "(Gewerbe)" in profile.about_text
+        assert state.current_state is None
+        callback.message.edit_text.assert_awaited_once()
+        callback.message.answer.assert_awaited_once()
+
+    run_db_test(run_test)
+
+
 def test_owner_add_site_creates_site_with_alpha_role(monkeypatch):
     async def run_test(session):
         company = Company(

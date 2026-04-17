@@ -20,6 +20,10 @@ class OwnerAlphaOnboardingStates(StatesGroup):
     waiting_for_company_address = State()
     waiting_for_company_email = State()
 
+class CompanyProfileEditStates(StatesGroup):
+    waiting_for_value = State()
+    waiting_for_legal_form = State()
+
 class AddSiteStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_address = State()
