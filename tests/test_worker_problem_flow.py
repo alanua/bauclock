@@ -194,7 +194,8 @@ def test_platform_identity_cannot_accept_worker_invite_on_client_bot(monkeypatch
 
         redis_stub.get.assert_not_called()
         message.answer.assert_awaited_once()
-        assert "@gewerbebot" in message.answer.await_args.args[0]
+        assert "@gewerbebot" not in message.answer.await_args.args[0]
+        assert "passenden BauClock-Chat" in message.answer.await_args.args[0]
 
     asyncio.run(run_test())
 

@@ -11,7 +11,6 @@ def is_platform_identity_on_non_platform_bot(username: str | None) -> bool:
 
 
 def platform_context_only_text(locale: str) -> str:
-    platform_bot = settings.PLATFORM_BOT_USERNAME.lstrip("@")
     if locale == "de":
-        return f"Dieser Plattform- und persoenliche Bereich ist nur in @{platform_bot} verfuegbar."
-    return f"This platform and personal area is only available in @{platform_bot}."
+        return "Dieser Zugang ist in diesem Chat nicht verfuegbar. Bitte den passenden BauClock-Chat verwenden."
+    return "This access is not available in this chat. Please use the matching BauClock chat."

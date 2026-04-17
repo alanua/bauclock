@@ -374,11 +374,10 @@ async def _create_subcontractor_company_invite(
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
     if not _is_dedicated_client_bot():
-        dedicated_bot_username = bot_config.DEDICATED_CLIENT_BOT_USERNAME.lstrip("@")
         await message.answer(
-            f"Bitte diese Einladung in @{dedicated_bot_username} erstellen."
+            "Diese Einladung kann in diesem Chat nicht erstellt werden."
             if locale == "de"
-            else f"Please create this invite in @{dedicated_bot_username}."
+            else "This invite cannot be created in this chat."
         )
         return
 
@@ -543,11 +542,10 @@ async def _start_partner_company_invite_acceptance(
     locale: str,
 ) -> None:
     if not bot_config.is_platform_bot:
-        platform_bot_username = bot_config.PLATFORM_BOT_USERNAME.lstrip("@")
         await message.answer(
-            f"Bitte oeffnen Sie diese Gewerbe-Einladung in @{platform_bot_username}."
+            "Dieser Einladungslink gehoert zu einem anderen BauClock-Chat."
             if locale == "de"
-            else f"Please open this company invite in @{platform_bot_username}."
+            else "This invite link belongs to another BauClock chat."
         )
         return
     if not _is_platform_superadmin(message):
@@ -630,9 +628,9 @@ async def _start_owner_invite_acceptance(
     )
     if not opened_in_target_bot:
         await message.answer(
-            f"Bitte oeffnen Sie diese Owner-Einladung in @{target_bot_username}."
+            "Dieser Einladungslink gehoert zu einem anderen BauClock-Chat. Bitte den Original-Link im passenden Chat oeffnen."
             if locale == "de"
-            else f"Please open this owner invite in @{target_bot_username}."
+            else "This invite link belongs to another BauClock chat. Please open the original link in the matching chat."
         )
         return
 
@@ -932,6 +930,14 @@ async def cmd_start(
         await state.set_state(ChiefRegistrationStates.waiting_for_owner_phone)
         return
 
+    if _is_shared_client_bot():
+        await message.answer(
+            "BauClock ist bereit. Wenn Sie eine Einladung haben, oeffnen Sie bitte den Einladungslink."
+            if locale == "de"
+            else "BauClock is ready. If you have an invite, please open the invite link."
+        )
+        return
+
     await message.answer(
         "Generalbau S.E.K. GmbH\n"
         "Wir bauen Zukunft - Stein auf Stein.\n\n"
@@ -984,11 +990,10 @@ async def cmd_assign_partner_site_team(
 ):
     await state.clear()
     if not bot_config.is_platform_bot:
-        platform_bot_username = bot_config.PLATFORM_BOT_USERNAME.lstrip("@")
         await message.answer(
-            f"Bitte Team-Zuweisung in @{platform_bot_username} oeffnen."
+            "Team-Zuweisung ist in diesem Chat nicht verfuegbar."
             if locale == "de"
-            else f"Please open team assignment in @{platform_bot_username}."
+            else "Team assignment is not available in this chat."
         )
         return
     if not current_worker or not can_access_dashboard(current_worker):

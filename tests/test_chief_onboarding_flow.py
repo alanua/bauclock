@@ -220,8 +220,39 @@ def test_platform_identity_on_sek_bot_does_not_enter_personal_context(monkeypatc
         )
 
         assert state.current_state is None
-        assert "@gewerbebot" in message.answer.await_args.args[0]
+        assert "@gewerbebot" not in message.answer.await_args.args[0]
+        assert "Plattform" not in message.answer.await_args.args[0]
+        assert "persoenliche" not in message.answer.await_args.args[0]
         assert "dashboard" not in message.answer.await_args.args[0].casefold()
+
+    asyncio.run(run_test())
+
+
+def test_uninvited_shared_client_start_stays_neutral(monkeypatch):
+    async def run_test():
+        monkeypatch.setattr(chief_handler.bot_config, "PLATFORM_SUPERADMIN_USERNAMES", [])
+        monkeypatch.setattr(chief_handler.bot_config, "ADMIN_USERNAMES", [])
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "shared_client")
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_USERNAME", "bauuhrbot")
+        monkeypatch.setattr(chief_handler.bot_config, "SHARED_CLIENT_BOT_USERNAME", "bauuhrbot")
+
+        state = FakeState()
+        message = FakeMessage("Visitor")
+
+        await chief_handler.cmd_start(
+            message=message,
+            state=state,
+            session=FakeSession(),
+            current_worker=None,
+            locale="de",
+        )
+
+        text = message.answer.await_args.args[0]
+        assert "BauClock ist bereit" in text
+        assert "Generalbau" not in text
+        assert "SEK" not in text
+        assert "@gewerbebot" not in text
+        assert state.current_state is None
 
     asyncio.run(run_test())
 
@@ -351,7 +382,8 @@ def test_owner_invite_acceptance_stays_on_shared_client_bot(monkeypatch):
 
         redis_stub.get.assert_awaited_once_with("owner_inv_wrong_bot")
         assert state.current_state is None
-        assert "@bauuhrbot" in message.answer.await_args.args[0]
+        assert "@bauuhrbot" not in message.answer.await_args.args[0]
+        assert "anderen BauClock-Chat" in message.answer.await_args.args[0]
 
     asyncio.run(run_test())
 
