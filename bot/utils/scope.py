@@ -1,4 +1,5 @@
 from bot.config import settings
+from bot.i18n.translations import t
 from bot.utils.access import normalize_username
 
 
@@ -11,6 +12,4 @@ def is_platform_identity_on_non_platform_bot(username: str | None) -> bool:
 
 
 def platform_context_only_text(locale: str) -> str:
-    if locale == "de":
-        return "Dieser Zugang ist in diesem Chat nicht verfuegbar. Bitte den passenden BauClock-Chat verwenden."
-    return "This access is not available in this chat. Please use the matching BauClock chat."
+    return t("access_wrong_chat", locale)

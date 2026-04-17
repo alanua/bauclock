@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from access.legacy_policy import can_access_dashboard
 from bot.config import settings as bot_config
+from bot.i18n.translations import t
 from bot.keyboards.chief_kb import (
     LEGAL_FORM_OPTIONS,
     get_cancel_kb,
@@ -325,12 +326,7 @@ async def _send_site_qr(message: Message, company: Company, site: Site, locale: 
     pdf_bytes = generate_site_pdf(tg_link, company.name, site.name, site.address or "")
     pdf_file = BufferedInputFile(pdf_bytes, filename=f"BauClock_Aushang_{safe_name}.pdf")
 
-    text = (
-        f"Baustelle '{site.name}' erstellt.\n\n"
-        "Der QR-Code ist bereit fuer Ankunft, Pause und Feierabend. Der gleiche Code bleibt der Master-QR fuer diese Baustelle."
-        if locale == "de"
-        else f"Site '{site.name}' created.\n\nThe QR code is ready for arrival, breaks, and checkout. The same code remains the master QR for this site."
-    )
+    text = t("site_created_qr_ready", locale).format(site_name=site.name)
     pdf_caption = "Druckfertiges A4-PDF fuer die Baustelle." if locale == "de" else "Print-ready A4 PDF for the site."
     await message.answer_photo(qr_file, caption=text)
     await message.answer_document(pdf_file, caption=pdf_caption)
@@ -375,20 +371,12 @@ async def _create_subcontractor_company_invite(
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
     if not _is_dedicated_client_bot():
-        await message.answer(
-            "Diese Einladung kann in diesem Chat nicht erstellt werden."
-            if locale == "de"
-            else "This invite cannot be created in this chat."
-        )
+        await message.answer(t("invite_create_wrong_chat", locale))
         return
 
     site = await _get_alpha_sek_site(session, current_worker.company_id)
     if not site:
-        await message.answer(
-            "Die SEK-Baustelle wurde nicht gefunden. Bitte zuerst die Baustellenliste pruefen."
-            if locale == "de"
-            else "The SEK site was not found. Please check the site list first."
-        )
+        await message.answer(t("site_missing_sek", locale))
         return
 
     token = f"partner_inv_{uuid.uuid4().hex[:24]}"
@@ -543,11 +531,7 @@ async def _start_partner_company_invite_acceptance(
     locale: str,
 ) -> None:
     if not bot_config.is_platform_bot:
-        await message.answer(
-            "Dieser Einladungslink gehoert zu einem anderen BauClock-Chat."
-            if locale == "de"
-            else "This invite link belongs to another BauClock chat."
-        )
+        await message.answer(t("invite_wrong_chat", locale))
         return
     if not _is_platform_superadmin(message):
         await state.clear()
@@ -628,11 +612,7 @@ async def _start_owner_invite_acceptance(
         else _is_shared_client_bot()
     )
     if not opened_in_target_bot:
-        await message.answer(
-            "Dieser Einladungslink gehoert zu einem anderen BauClock-Chat. Bitte den Original-Link im passenden Chat oeffnen."
-            if locale == "de"
-            else "This invite link belongs to another BauClock chat. Please open the original link in the matching chat."
-        )
+        await message.answer(t("invite_wrong_chat_original", locale))
         return
 
     if current_worker:
@@ -932,11 +912,7 @@ async def cmd_start(
         return
 
     if _is_shared_client_bot():
-        await message.answer(
-            "BauClock ist bereit. Wenn Sie eine Einladung haben, oeffnen Sie bitte den Einladungslink."
-            if locale == "de"
-            else "BauClock is ready. If you have an invite, please open the invite link."
-        )
+        await message.answer(t("shared_start_neutral", locale))
         return
 
     await message.answer(
@@ -991,11 +967,7 @@ async def cmd_assign_partner_site_team(
 ):
     await state.clear()
     if not bot_config.is_platform_bot:
-        await message.answer(
-            "Team-Zuweisung ist in diesem Chat nicht verfuegbar."
-            if locale == "de"
-            else "Team assignment is not available in this chat."
-        )
+        await message.answer(t("team_assignment_wrong_chat", locale))
         return
     if not current_worker or not can_access_dashboard(current_worker):
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
@@ -1548,9 +1520,7 @@ async def process_add_site_role(
     await session.commit()
 
     await callback.message.edit_text(
-        f"Baustelle '{site.name}' wurde angelegt. QR-Code und Objektlink folgen jetzt."
-        if locale == "de"
-        else f"Site '{site.name}' created. QR code and site link follow now."
+        t("site_created_qr_follow", locale).format(site_name=site.name)
     )
     if company:
         await _send_site_qr(callback.message, company, site, locale)
@@ -1646,9 +1616,7 @@ async def process_worker_contract_hours(message: Message, state: FSMContext, cur
 
 async def ask_objektmanager_flag(message: Message, state: FSMContext, locale: str):
     await message.answer(
-        "Welche Grundrolle bekommt diese Person?"
-        if locale == "de"
-        else "Which base role should this person have?",
+        t("person_role_prompt", locale),
         reply_markup=get_person_access_role_kb(locale),
     )
     await state.set_state(AddWorkerStates.waiting_for_access_role)
@@ -1739,11 +1707,7 @@ async def process_person_access_role(
     )
 
     if not has_dashboard_access:
-        text = (
-            "Worker ohne Managementrechte. Einladung wird vorbereitet."
-            if locale == "de"
-            else "Worker without management rights. Invite is being prepared."
-        )
+        text = t("worker_no_rights_invite", locale)
         await callback.message.edit_text(text)
         await callback.answer()
         await generate_invite_link(callback.message, state, current_worker, locale)
@@ -1770,11 +1734,7 @@ async def process_role_rights_confirmation(
     data = await state.get_data()
     access_role = data.get("access_role", WorkerAccessRole.WORKER.value)
     if callback.data == "role_rights_confirm":
-        text = (
-            "Rolle bestaetigt. Einladung wird vorbereitet."
-            if locale == "de"
-            else "Role confirmed. Invite is being prepared."
-        )
+        text = t("role_confirmed_invite", locale)
         await callback.message.edit_text(text)
         await callback.answer()
         await generate_invite_link(callback.message, state, current_worker, locale)
