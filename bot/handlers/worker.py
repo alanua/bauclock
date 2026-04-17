@@ -10,6 +10,8 @@ from sqlalchemy import select, func
 
 from db.models import (
     Company,
+    EmploymentStatus,
+    EmploymentType,
     EventType,
     LanguageSupport,
     Site,
@@ -40,6 +42,21 @@ from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_c
 from db.request_service import create_request
 
 router = Router()
+
+
+def _employment_type_from_invite(invite_data: dict, access_role: str) -> str:
+    employment_type = invite_data.get("employment_type")
+    allowed_values = {item.value for item in EmploymentType}
+    if employment_type in allowed_values:
+        return employment_type
+    worker_type = invite_data.get("worker_type")
+    if access_role == WorkerAccessRole.ACCOUNTANT.value:
+        return EmploymentType.EXTERNAL_ACCOUNTANT.value
+    if worker_type == WorkerType.MINIJOB.value:
+        return EmploymentType.MINIJOB.value
+    if worker_type in {WorkerType.GEWERBE.value, WorkerType.SUBUNTERNEHMER.value}:
+        return EmploymentType.SELF_EMPLOYED.value
+    return EmploymentType.EMPLOYEE_FULL_TIME.value
 
 
 def _problem_today():
@@ -298,6 +315,9 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
         else invite_data.get("access_role", WorkerAccessRole.WORKER.value)
     )
     can_view_dashboard = bool(invite_data.get("can_view_dashboard", False))
+    employment_status = invite_data.get("employment_status")
+    if employment_status not in {item.value for item in EmploymentStatus}:
+        employment_status = EmploymentStatus.ACTIVE.value
 
     new_worker = Worker(
         company_id=invite_data["company_id"],
@@ -312,6 +332,9 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
         access_role=access_role,
         can_view_dashboard=can_view_dashboard,
         time_tracking_enabled=True,
+        employment_type=_employment_type_from_invite(invite_data, access_role),
+        employment_status=employment_status,
+        started_at=datetime.now(timezone.utc),
         is_active=True,
         gdpr_consent_at=datetime.now(timezone.utc),
         created_by=invite_data["created_by"]    

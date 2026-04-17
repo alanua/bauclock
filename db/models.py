@@ -19,6 +19,25 @@ class WorkerAccessRole(str, enum.Enum):
     WORKER = "worker"
     SUBCONTRACTOR = "subcontractor"
 
+class EmploymentType(str, enum.Enum):
+    EMPLOYEE_FULL_TIME = "employee_full_time"
+    EMPLOYEE_PART_TIME = "employee_part_time"
+    MINIJOB = "minijob"
+    TEMPORARY = "temporary"
+    TRIAL_PERIOD = "trial_period"
+    SELF_EMPLOYED = "self_employed"
+    EXTERNAL_ACCOUNTANT = "external_accountant"
+    OTHER = "other"
+
+class EmploymentStatus(str, enum.Enum):
+    ACTIVE = "active"
+    TRIAL_ACTIVE = "trial_active"
+    PAUSED = "paused"
+    TERMINATED = "terminated"
+    COMPLETED = "completed"
+    CONVERTED = "converted"
+    INACTIVE = "inactive"
+
 class BillingType(str, enum.Enum):
     HOURLY = "HOURLY"
     FIXED = "FIXED"
@@ -167,6 +186,22 @@ class Worker(Base):
     billing_type = Column(Enum(BillingType), nullable=False)
     hourly_rate = Column(Float, nullable=True)
     contract_hours_week = Column(Integer, nullable=True)
+    employment_type = Column(
+        String(32),
+        nullable=False,
+        default=EmploymentType.EMPLOYEE_FULL_TIME.value,
+        server_default=EmploymentType.EMPLOYEE_FULL_TIME.value,
+    )
+    employment_status = Column(
+        String(32),
+        nullable=False,
+        default=EmploymentStatus.ACTIVE.value,
+        server_default=EmploymentStatus.ACTIVE.value,
+    )
+    started_at = Column(DateTime(timezone=True), nullable=True, server_default=func.now())
+    trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    termination_reason = Column(String, nullable=True)
     
     # App logic
     language = Column(Enum(LanguageSupport), default=LanguageSupport.DE)

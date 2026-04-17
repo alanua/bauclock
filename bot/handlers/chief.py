@@ -2,6 +2,7 @@ import json
 import re
 import urllib.parse
 import uuid
+from datetime import datetime, timezone
 from html import escape
 
 from aiogram import F, Router
@@ -52,6 +53,8 @@ from db.models import (
     BillingType,
     Company,
     CompanyPublicProfile,
+    EmploymentStatus,
+    EmploymentType,
     Site,
     SitePartnerCompany,
     Worker,
@@ -69,6 +72,17 @@ def _as_text(value) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return str(value or "")
+
+
+def _employment_type_for_membership(worker_type: str | WorkerType | None, access_role: str | None = None) -> str:
+    worker_type_value = getattr(worker_type, "value", worker_type)
+    if access_role == WorkerAccessRole.ACCOUNTANT.value:
+        return EmploymentType.EXTERNAL_ACCOUNTANT.value
+    if worker_type_value == WorkerType.MINIJOB.value:
+        return EmploymentType.MINIJOB.value
+    if worker_type_value in {WorkerType.GEWERBE.value, WorkerType.SUBUNTERNEHMER.value}:
+        return EmploymentType.SELF_EMPLOYED.value
+    return EmploymentType.EMPLOYEE_FULL_TIME.value
 
 
 def _message_username(message: Message) -> str:
@@ -460,6 +474,9 @@ async def _create_owned_gewerbe_company(
         access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
         time_tracking_enabled=False,
+        employment_type=EmploymentType.SELF_EMPLOYED.value,
+        employment_status=EmploymentStatus.ACTIVE.value,
+        started_at=datetime.now(timezone.utc),
         is_active=True,
         created_by=None,
     )
@@ -1311,6 +1328,9 @@ async def process_owner_alpha_company_email(
         access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
         time_tracking_enabled=False,
+        employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+        employment_status=EmploymentStatus.ACTIVE.value,
+        started_at=datetime.now(timezone.utc),
         is_active=True,
         created_by=None,
     )
@@ -1415,6 +1435,9 @@ async def process_company_email(message: Message, state: FSMContext, session: As
         access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
         time_tracking_enabled=False,
+        employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+        employment_status=EmploymentStatus.ACTIVE.value,
+        started_at=datetime.now(timezone.utc),
         is_active=True,
         created_by=None,
     )
@@ -1779,15 +1802,19 @@ async def generate_invite_link(message: Message, state: FSMContext, current_work
 
     data = await state.get_data()
     token = f"inv_{uuid.uuid4().hex[:16]}"
+    access_role = data.get("access_role", WorkerAccessRole.WORKER.value)
+    worker_type = data.get("worker_type")
     invite_data = {
         "company_id": current_worker.company_id,
         "name": data.get("name"),
-        "worker_type": data.get("worker_type"),
+        "worker_type": worker_type,
         "hourly_rate": data.get("rate"),
         "contract_hours": data.get("contract_hours", 0),
         "created_by": current_worker.id,
-        "access_role": data.get("access_role", WorkerAccessRole.WORKER.value),
+        "access_role": access_role,
         "can_view_dashboard": bool(data.get("can_view_dashboard", False)),
+        "employment_type": _employment_type_for_membership(worker_type, access_role),
+        "employment_status": EmploymentStatus.ACTIVE.value,
     }
 
     await redis_client.setex(token, 86400 * 7, json.dumps(invite_data))

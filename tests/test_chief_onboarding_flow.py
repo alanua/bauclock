@@ -98,6 +98,8 @@ from db.models import (
     BillingType,
     Company,
     CompanyPublicProfile,
+    EmploymentStatus,
+    EmploymentType,
     Site,
     SitePartnerCompany,
     Worker,
@@ -734,6 +736,36 @@ def test_owner_adds_plain_worker_without_management_rights(monkeypatch):
         assert "ohne Managementrechte" in callback.message.edit_text.await_args.args[0]
         assert "Rollenrechte" not in callback.message.edit_text.await_args.args[0]
         generate_invite.assert_awaited_once()
+
+    asyncio.run(run_test())
+
+
+def test_worker_invite_payload_includes_canonical_employment(monkeypatch):
+    async def run_test():
+        state = FakeState()
+        await state.update_data(
+            worker_type=WorkerType.MINIJOB.value,
+            name="Mini Job",
+            rate=14,
+            contract_hours=12,
+            access_role=WorkerAccessRole.WORKER.value,
+            can_view_dashboard=False,
+        )
+        redis_stub = SimpleNamespace(setex=AsyncMock())
+        monkeypatch.setattr(chief_handler, "redis_client", redis_stub)
+        monkeypatch.setattr(chief_handler, "generate_qr_code", lambda data: SimpleNamespace(getvalue=lambda: b"qr"))
+        message = SimpleNamespace(
+            bot=SimpleNamespace(get_me=AsyncMock(return_value=SimpleNamespace(username="bauuhrbot"))),
+            answer_photo=AsyncMock(),
+        )
+        current_worker = SimpleNamespace(id=7, company_id=3)
+
+        await chief_handler.generate_invite_link(message, state, current_worker, "de")
+
+        invite_json = redis_stub.setex.await_args.args[2]
+        invite_data = json.loads(invite_json)
+        assert invite_data["employment_type"] == EmploymentType.MINIJOB.value
+        assert invite_data["employment_status"] == EmploymentStatus.ACTIVE.value
 
     asyncio.run(run_test())
 

@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import BillingType, Company, Worker, WorkerAccessRole, WorkerType
+from db.models import (
+    BillingType,
+    Company,
+    EmploymentStatus,
+    EmploymentType,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
 from db.security import encrypt_string, hash_string
 
 
@@ -37,6 +47,15 @@ async def ensure_company_owner_worker(
         if existing_worker.time_tracking_enabled:
             existing_worker.time_tracking_enabled = False
             updated = True
+        if not existing_worker.employment_type:
+            existing_worker.employment_type = EmploymentType.EMPLOYEE_FULL_TIME.value
+            updated = True
+        if not existing_worker.employment_status:
+            existing_worker.employment_status = EmploymentStatus.ACTIVE.value
+            updated = True
+        if not existing_worker.started_at:
+            existing_worker.started_at = datetime.now(timezone.utc)
+            updated = True
         if updated:
             session.add(existing_worker)
             await session.commit()
@@ -52,6 +71,9 @@ async def ensure_company_owner_worker(
         access_role=WorkerAccessRole.COMPANY_OWNER.value,
         can_view_dashboard=True,
         time_tracking_enabled=False,
+        employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+        employment_status=EmploymentStatus.ACTIVE.value,
+        started_at=datetime.now(timezone.utc),
         is_active=True,
         created_by=None,
     )

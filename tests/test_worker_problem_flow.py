@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -10,7 +11,29 @@ from unittest.mock import AsyncMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from db.models import Base, BillingType, Company, EventType, Request, Site, SitePartnerCompany, TimeEvent, Worker, WorkerAccessRole, WorkerType
+from db.models import (
+    Base,
+    BillingType,
+    Company,
+    EmploymentStatus,
+    EmploymentType,
+    EventType,
+    Request,
+    Site,
+    SitePartnerCompany,
+    TimeEvent,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
+
+
+os.environ.setdefault("BOT_TOKEN", "test-token")
+os.environ.setdefault(
+    "ENCRYPTION_KEY",
+    "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+)
+os.environ.setdefault("HASH_PEPPER", "test_pepper")
 
 
 class Filter:
@@ -421,6 +444,9 @@ def test_worker_invite_can_create_objektmanager_dashboard_access(monkeypatch):
         assert created.access_role == WorkerAccessRole.OBJEKTMANAGER.value
         assert created.can_view_dashboard is True
         assert created.time_tracking_enabled is True
+        assert created.employment_type == EmploymentType.EMPLOYEE_FULL_TIME.value
+        assert created.employment_status == EmploymentStatus.ACTIVE.value
+        assert created.started_at is not None
         redis_stub.delete.assert_awaited_once_with("inv_objektmanager")
 
     run_db_test(run_test)
