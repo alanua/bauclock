@@ -1292,3 +1292,146 @@ def test_gewerbe_owner_assigns_own_people_to_joined_sek_site(monkeypatch):
         assert "bestehenden SEK-Baustellen-QR" in message.answer.await_args.args[0]
 
     run_db_test(run_test)
+
+
+def test_sek_owner_partner_status_groups_partner_companies(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "dedicated_client")
+        sek_company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="sek_owner_enc",
+            owner_telegram_id_hash="sek_owner_hash",
+        )
+        partner_company = Company(
+            name="AOV Gewerbe",
+            owner_telegram_id_enc="partner_owner_enc",
+            owner_telegram_id_hash="partner_owner_hash",
+        )
+        session.add_all([sek_company, partner_company])
+        await session.flush()
+        site = Site(
+            company_id=sek_company.id,
+            name=chief_handler.SEK_ALPHA_SITE_NAME,
+            qr_token="site_partner_status",
+            is_active=True,
+        )
+        owner = Worker(
+            company_id=sek_company.id,
+            telegram_id_enc="sek_owner_enc",
+            telegram_id_hash="sek_owner_hash",
+            full_name_enc="SEK Owner",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        partner_worker = Worker(
+            company_id=partner_company.id,
+            site=site,
+            telegram_id_enc="partner_worker_enc",
+            telegram_id_hash="partner_worker_hash",
+            full_name_enc="Partner Worker",
+            worker_type=WorkerType.GEWERBE,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.WORKER.value,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            employment_type=EmploymentType.SELF_EMPLOYED.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        partnership = SitePartnerCompany(
+            site=site,
+            company=partner_company,
+            role="subcontractor",
+            is_active=True,
+        )
+        session.add_all([site, owner, partner_worker, partnership])
+        await session.commit()
+
+        state = FakeState()
+        message = FakeMessage("sek_owner")
+        await chief_handler.cmd_partner_status(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        text = message.answer.await_args.args[0]
+        assert "Partnerfirmen" in text
+        assert "AOV Gewerbe: 1 Person zugewiesen" in text
+        assert "/invite_subcontractor" in text
+
+    run_db_test(run_test)
+
+
+def test_gewerbe_owner_partner_status_shows_joined_site_and_own_assignment(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(chief_handler.bot_config, "BOT_ROLE", "platform")
+        sek_company = Company(
+            name="Generalbau S.E.K. GmbH",
+            owner_telegram_id_enc="sek_owner_enc",
+            owner_telegram_id_hash="sek_owner_hash",
+        )
+        own_company = Company(
+            name="AOV Gewerbe",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash=hash_string("123456"),
+        )
+        session.add_all([sek_company, own_company])
+        await session.flush()
+        site = Site(
+            company_id=sek_company.id,
+            name=chief_handler.SEK_ALPHA_SITE_NAME,
+            qr_token="site_joined_status",
+            is_active=True,
+        )
+        owner = Worker(
+            company_id=own_company.id,
+            site=site,
+            telegram_id_enc="owner_enc",
+            telegram_id_hash=hash_string("123456"),
+            full_name_enc="Owner Name",
+            worker_type=WorkerType.GEWERBE,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            employment_type=EmploymentType.SELF_EMPLOYED.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        partnership = SitePartnerCompany(
+            site=site,
+            company=own_company,
+            role="subcontractor",
+            accepted_by_worker_id=owner.id,
+            is_active=True,
+        )
+        session.add_all([site, owner, partnership])
+        await session.commit()
+
+        state = FakeState()
+        message = FakeMessage("AnOleksii")
+        await chief_handler.cmd_partner_status(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        text = message.answer.await_args.args[0]
+        assert "Beigetretene Baustellen" in text
+        assert chief_handler.SEK_ALPHA_SITE_NAME in text
+        assert "Generalbau S.E.K. GmbH" in text
+        assert "Eigenes Team zugewiesen: 1 Person" in text
+        assert "/assign_site_team" in text
+
+    run_db_test(run_test)

@@ -1071,6 +1071,134 @@ async def cmd_invite_subcontractor_company(
     await _create_subcontractor_company_invite(message, current_worker, session, locale)
 
 
+@router.message(Command("partner_status"))
+async def cmd_partner_status(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    current_worker: Worker | None,
+    locale: str,
+):
+    await state.clear()
+    if not current_worker or not can_access_dashboard(current_worker):
+        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        return
+
+    if bot_config.is_platform_bot:
+        partnerships = (
+            await session.execute(
+                select(SitePartnerCompany, Site)
+                .join(Site, Site.id == SitePartnerCompany.site_id)
+                .where(
+                    SitePartnerCompany.company_id == current_worker.company_id,
+                    SitePartnerCompany.is_active.is_(True),
+                    Site.is_active.is_(True),
+                )
+                .order_by(Site.id)
+            )
+        ).all()
+        if not partnerships:
+            await message.answer(
+                "Noch keine beigetretene Baustelle gefunden."
+                if locale == "de"
+                else "No joined site found yet."
+            )
+            return
+
+        lines = ["Beigetretene Baustellen", ""]
+        if locale != "de":
+            lines = ["Joined sites", ""]
+        for _partnership, site in partnerships:
+            general_contractor = await session.get(Company, site.company_id)
+            assigned_count = len(
+                (
+                    await session.execute(
+                        select(Worker.id).where(
+                            Worker.company_id == current_worker.company_id,
+                            Worker.site_id == site.id,
+                            Worker.is_active.is_(True),
+                        )
+                    )
+                ).all()
+            )
+            person_word = "Person" if assigned_count == 1 else "Personen"
+            if locale == "de":
+                lines.extend([
+                    f"Baustelle: {site.name}",
+                    f"Generalunternehmer: {general_contractor.name if general_contractor else '-'}",
+                    f"Eigenes Team zugewiesen: {assigned_count} {person_word}",
+                    "",
+                ])
+            else:
+                person_word = "person" if assigned_count == 1 else "people"
+                lines.extend([
+                    f"Site: {site.name}",
+                    f"General contractor: {general_contractor.name if general_contractor else '-'}",
+                    f"Own team assigned: {assigned_count} {person_word}",
+                    "",
+                ])
+        lines.append("Team zuweisen: /assign_site_team" if locale == "de" else "Assign team: /assign_site_team")
+        await message.answer("\n".join(lines))
+        return
+
+    sites = (
+        await session.execute(
+            select(Site)
+            .where(Site.company_id == current_worker.company_id, Site.is_active.is_(True))
+            .order_by(Site.id)
+        )
+    ).scalars().all()
+    if not sites:
+        await message.answer("Noch keine aktive Baustelle." if locale == "de" else "No active sites yet.")
+        return
+
+    lines = ["Partnerfirmen", ""]
+    if locale != "de":
+        lines = ["Partner companies", ""]
+    for site in sites:
+        partners = (
+            await session.execute(
+                select(SitePartnerCompany, Company)
+                .join(Company, Company.id == SitePartnerCompany.company_id)
+                .where(
+                    SitePartnerCompany.site_id == site.id,
+                    SitePartnerCompany.is_active.is_(True),
+                )
+                .order_by(Company.name)
+            )
+        ).all()
+        lines.append(site.name)
+        if not partners:
+            lines.append("- Keine Partnerfirma verbunden." if locale == "de" else "- No partner company connected.")
+            lines.append("")
+            continue
+        for _partnership, company in partners:
+            assigned_count = len(
+                (
+                    await session.execute(
+                        select(Worker.id).where(
+                            Worker.company_id == company.id,
+                            Worker.site_id == site.id,
+                            Worker.is_active.is_(True),
+                        )
+                    )
+                ).all()
+            )
+            person_word = "Person" if assigned_count == 1 else "Personen"
+            if locale == "de":
+                lines.append(f"- {company.name}: {assigned_count} {person_word} zugewiesen")
+            else:
+                person_word = "person" if assigned_count == 1 else "people"
+                lines.append(f"- {company.name}: {assigned_count} {person_word} assigned")
+        lines.append("")
+    lines.append(
+        "Neue Partnerfirma einladen: /invite_subcontractor"
+        if locale == "de"
+        else "Invite a new partner company: /invite_subcontractor"
+    )
+    await message.answer("\n".join(lines))
+
+
 @router.message(Command("assign_site_team"))
 async def cmd_assign_partner_site_team(
     message: Message,
