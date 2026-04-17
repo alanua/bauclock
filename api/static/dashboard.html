@@ -1063,6 +1063,45 @@
       overflow-wrap: anywhere;
     }
 
+    .people-group-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .people-group-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 253, 248, 0.9);
+      box-shadow: var(--worker-shadow-card);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .people-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding-top: 10px;
+      border-top: 1px solid rgba(58, 76, 67, 0.1);
+    }
+
+    .people-name {
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .people-meta {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
     .management-entry-card {
       width: 100%;
       min-height: 72px;
@@ -2100,6 +2139,18 @@
             </div>
           </details>
 
+          <details id="managementPeopleSection" class="management-section management-section-wide" data-role-section="people">
+            <summary class="section-summary">
+              <span>
+                <span class="worker-action-label">People</span>
+                <span id="managementPeopleSummary" class="worker-action-detail">Eigene Rollen und Arbeiter</span>
+              </span>
+            </summary>
+            <div class="management-section-body">
+              <div id="managementPeopleGroups" class="people-group-list"></div>
+            </div>
+          </details>
+
           <details id="managementSitesSection" class="management-section management-section-wide" data-role-section="operations">
             <summary class="section-summary">
               <span>
@@ -2273,6 +2324,7 @@
       managementFinanceSection: document.getElementById("managementFinanceSection"),
       managementPartnersSection: document.getElementById("managementPartnersSection"),
       managementEntrySection: document.getElementById("managementEntrySection"),
+      managementPeopleSection: document.getElementById("managementPeopleSection"),
       managementSitesSection: document.getElementById("managementSitesSection"),
       managementWorkersSection: document.getElementById("managementWorkersSection"),
       managementRequestsSection: document.getElementById("managementRequestsSection"),
@@ -2280,6 +2332,7 @@
       managementFinanceSummary: document.getElementById("managementFinanceSummary"),
       managementPartnersSummary: document.getElementById("managementPartnersSummary"),
       managementEntrySummary: document.getElementById("managementEntrySummary"),
+      managementPeopleSummary: document.getElementById("managementPeopleSummary"),
       managementSitesSummary: document.getElementById("managementSitesSummary"),
       managementOpsNotCheckedIn: document.getElementById("managementOpsNotCheckedIn"),
       managementOpsUnclosed: document.getElementById("managementOpsUnclosed"),
@@ -2294,6 +2347,7 @@
       managementCalendarEntryNote: document.getElementById("managementCalendarEntryNote"),
       managementExportsEntryNote: document.getElementById("managementExportsEntryNote"),
       managementEntryState: document.getElementById("managementEntryState"),
+      managementPeopleGroups: document.getElementById("managementPeopleGroups"),
       managementSitesList: document.getElementById("managementSitesList"),
       managementSiteDetail: document.getElementById("managementSiteDetail"),
       presentCount: document.getElementById("presentCount"),
@@ -2588,6 +2642,7 @@
       );
       setDetailsOpen(elements.managementPartnersSection, allowed.has("partners") && !isCompact);
       setDetailsOpen(elements.managementEntrySection, allowed.has("entry_points"));
+      setDetailsOpen(elements.managementPeopleSection, allowed.has("people") && !isCompact);
       setDetailsOpen(elements.managementSitesSection, allowed.has("operations") && !isCompact);
       setDetailsOpen(elements.managementWorkersSection, allowed.has("people") && !isCompact);
       setDetailsOpen(
@@ -2703,6 +2758,24 @@
       elements.publicEmail.textContent = profile.email;
     }
 
+    function normalisePeopleItems(items) {
+      return Array.isArray(items)
+        ? items.map((person) => ({
+            id: Number(person.id || 0),
+            name: String(person.name || "Person"),
+            worker_type: String(person.worker_type || ""),
+            access_role: String(person.access_role || "worker"),
+            access_role_label: String(person.access_role_label || "Worker"),
+            can_view_dashboard: Boolean(person.can_view_dashboard),
+            time_tracking_enabled: Boolean(person.time_tracking_enabled),
+            site_id: person.site_id ? Number(person.site_id) : null,
+            site_name: person.site_name ? String(person.site_name) : "",
+            today_status: String(person.today_status || "not_started"),
+            today_status_label: String(person.today_status_label || "Nicht gestartet"),
+          }))
+        : [];
+    }
+
     function normaliseData(payload) {
       const user = payload && typeof payload === "object" ? payload.user || {} : {};
       const today = payload && typeof payload === "object" ? payload.today || {} : {};
@@ -2712,6 +2785,7 @@
       const finance = home && typeof home === "object" ? home.finance || {} : {};
       const partners = home && typeof home === "object" ? home.partners || {} : {};
       const sites = home && typeof home === "object" ? home.sites || {} : {};
+      const people = home && typeof home === "object" ? home.people || {} : {};
       const quickEntries = home && typeof home === "object" ? home.quick_entries || {} : {};
       const workers = Array.isArray(payload?.workers) ? payload.workers : [];
 
@@ -2792,6 +2866,11 @@
                   partner_company_count: Number(site.partner_company_count || 0),
                 }))
               : [],
+          },
+          people: {
+            total: Number(people.total || 0),
+            own_workers: normalisePeopleItems(people.own_workers),
+            management: normalisePeopleItems(people.management),
           },
           quick_entries: {
             people: Number(quickEntries.people || 0),
@@ -3006,6 +3085,7 @@
           : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Gesamtzahl.";
 
       renderPartnerGroups(partners.groups);
+      renderPeople(data);
       renderSites(data);
       applyManagementRoleVisibility(data);
       applyManagementDisclosureDefaults(data);
@@ -3141,6 +3221,47 @@
       elements.managementSiteDetail.innerHTML = "";
     }
 
+    function renderPeopleGroup(title, items, emptyCopy) {
+      if (!items.length) {
+        return `
+          <article class="people-group-card">
+            <p class="management-mini-label">${escapeHtml(title)}</p>
+            <p class="management-mini-note">${escapeHtml(emptyCopy)}</p>
+          </article>
+        `;
+      }
+      return `
+        <article class="people-group-card">
+          <div>
+            <p class="management-mini-label">${escapeHtml(title)}</p>
+            <p class="management-mini-note">${items.length === 1 ? "1 Person" : `${items.length} Personen`}</p>
+          </div>
+          ${items.map((person) => `
+            <div class="people-row">
+              <div>
+                <div class="people-name">${escapeHtml(person.name)}</div>
+                <div class="people-meta">
+                  ${escapeHtml(person.access_role_label)} · ${escapeHtml(formatWorkerType(person.worker_type))}
+                  ${person.site_name ? ` · ${escapeHtml(person.site_name)}` : " · kein Objekt"}
+                </div>
+              </div>
+              <span class="status-badge ${escapeHtml(person.today_status)}">${escapeHtml(person.today_status_label)}</span>
+            </div>
+          `).join("")}
+        </article>
+      `;
+    }
+
+    function renderPeople(data) {
+      const people = data.management_home.people;
+      elements.managementPeopleSummary.textContent =
+        people.total === 1 ? "1 Person sichtbar" : `${people.total} Personen sichtbar`;
+      elements.managementPeopleGroups.innerHTML = [
+        renderPeopleGroup("Eigene Arbeiter", people.own_workers, "Noch keine eigenen Arbeiter angelegt."),
+        renderPeopleGroup("Objektmanager / Accountant / Owner", people.management, "Noch keine Management-Rollen angelegt."),
+      ].join("");
+    }
+
     function openManagementSection(section) {
       if (!section) {
         return;
@@ -3160,8 +3281,12 @@
       }
 
       if (entry === "people") {
-        openManagementSection(elements.managementWorkersSection);
-        setManagementEntryState("People geoeffnet. Die Liste nutzt die bestehenden sichtbaren Mitarbeiterdaten.");
+        if (elements.managementPeopleSection.classList.contains("is-role-hidden")) {
+          setManagementEntryState("People ist fuer diese Rolle nicht sichtbar.");
+          return;
+        }
+        openManagementSection(elements.managementPeopleSection);
+        setManagementEntryState("People geoeffnet. Rollen, Arbeiter und Objektzuordnung nutzen bestehende Daten.");
         return;
       }
 

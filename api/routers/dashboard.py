@@ -25,7 +25,7 @@ from api.services.dashboard_access import (
 )
 from db.calendar_service import list_worker_calendar_events
 from db.database import get_db
-from db.models import CalendarEvent, Company, EventType, Payment, Request, RequestStatus, Site, SitePartnerCompany, TimeEvent, Worker
+from db.models import CalendarEvent, Company, EventType, Payment, Request, RequestStatus, Site, SitePartnerCompany, TimeEvent, Worker, WorkerAccessRole
 from db.request_service import (
     RequestAccessError,
     create_request,
@@ -38,7 +38,7 @@ from db.security import decrypt_string
 
 
 router = APIRouter()
-DASHBOARD_SHELL_VERSION = "20260417-sites-alpha"
+DASHBOARD_SHELL_VERSION = "20260417-people-alpha"
 
 
 class MiniAppBootstrapRequest(BaseModel):
@@ -448,6 +448,69 @@ def _status_badge_class(status_key: str) -> str:
     }.get(status_key, "not_started")
 
 
+def _person_access_role_label(value: str | None) -> str:
+    return {
+        WorkerAccessRole.COMPANY_OWNER.value: "Owner",
+        WorkerAccessRole.OBJEKTMANAGER.value: "Objektmanager",
+        WorkerAccessRole.ACCOUNTANT.value: "Accountant",
+        WorkerAccessRole.SUBCONTRACTOR.value: "Subcontractor",
+        WorkerAccessRole.WORKER.value: "Worker",
+    }.get(str(value or ""), "Worker")
+
+
+async def _serialize_management_people(
+    db: AsyncSession,
+    *,
+    people: list[Worker],
+    events_by_worker: dict[int, list[TimeEvent]],
+    now: datetime,
+) -> dict[str, object]:
+    site_ids = {person.site_id for person in people if person.site_id}
+    sites_by_id: dict[int, Site] = {}
+    if site_ids:
+        sites = (await db.execute(select(Site).where(Site.id.in_(site_ids)))).scalars().all()
+        sites_by_id = {site.id: site for site in sites}
+
+    own_workers: list[dict[str, object]] = []
+    management: list[dict[str, object]] = []
+    for person in people:
+        person_events = events_by_worker.get(person.id, [])
+        status = _worker_status(person_events) if person.time_tracking_enabled else {
+            "key": "management",
+            "label": "Verwaltung",
+            "detail": "Kein Zeitkonto",
+        }
+        site = sites_by_id.get(person.site_id) if person.site_id else None
+        item = {
+            "id": person.id,
+            "name": decrypt_string(person.full_name_enc),
+            "worker_type": _event_type_value(person.worker_type),
+            "access_role": str(person.access_role or WorkerAccessRole.WORKER.value),
+            "access_role_label": _person_access_role_label(person.access_role),
+            "can_view_dashboard": bool(person.can_view_dashboard),
+            "time_tracking_enabled": bool(person.time_tracking_enabled),
+            "site_id": person.site_id,
+            "site_name": site.name if site else None,
+            "today_status": _status_badge_class(str(status["key"])),
+            "today_status_label": status["label"],
+        }
+        is_management_role = person.access_role in {
+            WorkerAccessRole.COMPANY_OWNER.value,
+            WorkerAccessRole.OBJEKTMANAGER.value,
+            WorkerAccessRole.ACCOUNTANT.value,
+        }
+        if is_management_role or (person.can_view_dashboard and not person.time_tracking_enabled):
+            management.append(item)
+        else:
+            own_workers.append(item)
+
+    return {
+        "total": len(people),
+        "own_workers": own_workers,
+        "management": management,
+    }
+
+
 def _site_role_from_description(description: str | None, default: str) -> str:
     value = (description or "").casefold()
     if "subcontractor" in value or "subunternehmer" in value:
@@ -677,10 +740,14 @@ async def _serialize_management_home(
     *,
     context: DashboardContext,
     workers: list[Worker],
+    people: list[Worker],
     today: date,
 ) -> dict[str, object]:
     access_role = _management_access_role(context)
     today_events = await _get_company_today_events(db, company_id=context.company_id, today=today)
+    events_by_worker: dict[int, list[TimeEvent]] = {}
+    for event in today_events:
+        events_by_worker.setdefault(event.worker_id, []).append(event)
     today_status = _management_today_status(workers, today_events)
     now = datetime.now(timezone.utc)
     partner_groups, partner_totals = await _serialize_partner_groups(
@@ -775,8 +842,14 @@ async def _serialize_management_home(
             "groups": partner_groups,
         },
         "sites": sites,
+        "people": await _serialize_management_people(
+            db,
+            people=people,
+            events_by_worker=events_by_worker,
+            now=now,
+        ),
         "quick_entries": {
-            "people": len(workers),
+            "people": len(people),
             "sites": int(sites["total"]),
             "calendar": int(upcoming_calendar_count or 0),
             "exports": len(payments),
@@ -846,8 +919,13 @@ async def dashboard_data(
         Worker.company_id == context.company_id,
         Worker.is_active.is_(True),
         Worker.time_tracking_enabled.is_(True),
-    )
+    ).order_by(Worker.id)
     workers = (await db.execute(stmt)).scalars().all()
+    all_workers_stmt = select(Worker).where(
+        Worker.company_id == context.company_id,
+        Worker.is_active.is_(True),
+    ).order_by(Worker.id)
+    all_workers = (await db.execute(all_workers_stmt)).scalars().all()
     present_ids = await get_company_present_worker_ids(db, context.company_id, today)
     now = datetime.now(timezone.utc)
     today_events = await _get_company_today_events(db, company_id=context.company_id, today=today)
@@ -868,6 +946,7 @@ async def dashboard_data(
             db,
             context=context,
             workers=list(workers),
+            people=list(all_workers),
             today=today,
         ),
         "workers": _serialize_management_workers(

@@ -413,6 +413,14 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
             telegram_id=123457,
             access_role=WorkerAccessRole.COMPANY_OWNER,
         )
+        accountant = await seed_worker(
+            session,
+            company.id,
+            "management-home-accountant",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            access_role=WorkerAccessRole.ACCOUNTANT,
+        )
         working = await seed_worker(session, company.id, "management-home-working")
         on_break = await seed_worker(session, company.id, "management-home-break")
         not_started = await seed_worker(session, company.id, "management-home-waiting")
@@ -496,8 +504,22 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
         assert home["finance"]["confirmed_amount"] == 350
         assert home["finance"]["pending_overtime_hours"] == 2.5
         assert home["partners"]["subcontractor_workers"] == 1
+        assert home["quick_entries"]["people"] == 6
         assert home["quick_entries"]["sites"] == 1
         assert home["quick_entries"]["calendar"] == 1
+        assert home["people"]["total"] == 6
+        assert [person["name"] for person in home["people"]["management"]] == [
+            "name_enc_management-home-manager",
+            "name_enc_management-home-accountant",
+        ]
+        assert [person["name"] for person in home["people"]["own_workers"]] == [
+            "name_enc_management-home-working",
+            "name_enc_management-home-break",
+            "name_enc_management-home-waiting",
+            "name_enc_management-home-sub",
+        ]
+        assert home["people"]["management"][1]["access_role_label"] == "Accountant"
+        assert home["people"]["own_workers"][0]["site_name"] == site.name
         assert home["sites"]["total"] == 1
         assert home["sites"]["owned"] == 1
         assert home["sites"]["joined"] == 0
