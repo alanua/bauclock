@@ -472,6 +472,27 @@ def test_owner_legal_form_choice_moves_to_company_address():
     asyncio.run(run_test())
 
 
+def test_owner_legal_form_other_uses_canonical_value():
+    async def run_test():
+        state = FakeState()
+        callback = SimpleNamespace(
+            data="legal_form_other",
+            message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+
+        await chief_handler.process_owner_alpha_company_legal_form(
+            callback=callback,
+            state=state,
+            locale="de",
+        )
+
+        assert state.data["company_legal_form"] == "other"
+        assert "Sonstiges" in callback.message.edit_text.await_args.args[0]
+
+    asyncio.run(run_test())
+
+
 def test_owner_alpha_onboarding_creates_owner_company_and_public_profile(monkeypatch):
     async def run_test(session):
         redis_stub = SimpleNamespace(delete=AsyncMock())

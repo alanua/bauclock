@@ -123,6 +123,7 @@ def _skip_value(text: str | None) -> bool:
 
 def _legal_form_label(value: str | None) -> str:
     labels = dict(LEGAL_FORM_OPTIONS)
+    labels["sonstiges"] = "Sonstiges"
     return labels.get(str(value or ""), "Sonstiges")
 
 

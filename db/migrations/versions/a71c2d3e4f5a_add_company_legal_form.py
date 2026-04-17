@@ -29,7 +29,7 @@ def upgrade() -> None:
                     WHEN lower(coalesce(company_public_profiles.subtitle, '') || ' ' || coalesce(company_public_profiles.about_text, '')) LIKE '%gmbh%' THEN 'gmbh'
                     WHEN lower(coalesce(company_public_profiles.subtitle, '') || ' ' || coalesce(company_public_profiles.about_text, '')) LIKE '%gbr%' THEN 'gbr'
                     WHEN lower(coalesce(company_public_profiles.subtitle, '') || ' ' || coalesce(company_public_profiles.about_text, '')) LIKE '%gewerbe%' THEN 'gewerbe'
-                    WHEN lower(coalesce(company_public_profiles.subtitle, '') || ' ' || coalesce(company_public_profiles.about_text, '')) LIKE '%sonstiges%' THEN 'sonstiges'
+                    WHEN lower(coalesce(company_public_profiles.subtitle, '') || ' ' || coalesce(company_public_profiles.about_text, '')) LIKE '%sonstiges%' THEN 'other'
                     WHEN lower(coalesce(company_public_profiles.subtitle, '') || ' ' || coalesce(company_public_profiles.about_text, '')) LIKE '%- ug%' THEN 'ug'
                     WHEN lower(coalesce(company_public_profiles.subtitle, '') || ' ' || coalesce(company_public_profiles.about_text, '')) LIKE '%(ug)%' THEN 'ug'
                     ELSE NULL

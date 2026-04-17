@@ -9,7 +9,7 @@ LEGAL_FORM_OPTIONS = [
     ("ug", "UG"),
     ("gbr", "GbR"),
     ("einzelunternehmen", "Einzelunternehmen"),
-    ("sonstiges", "Sonstiges"),
+    ("other", "Sonstiges"),
 ]
 
 
