@@ -507,16 +507,7 @@ def test_dashboard_data_includes_management_home_real_counts(monkeypatch):
         assert home["quick_entries"]["people"] == 6
         assert home["quick_entries"]["sites"] == 1
         assert home["quick_entries"]["calendar"] == 1
-        assert home["alpha_support"] == {
-            "people_total": 6,
-            "own_workers": 4,
-            "management_roles": 2,
-            "sites_total": 1,
-            "sites_with_qr": 1,
-            "joined_sites": 0,
-            "open_requests": 1,
-            "ready_for_time_test": True,
-        }
+        assert "alpha_support" not in home
         assert home["people"]["total"] == 6
         assert [person["name"] for person in home["people"]["management"]] == [
             "name_enc_management-home-manager",

@@ -2165,40 +2165,6 @@
             </div>
           </details>
 
-          <details id="managementAlphaSupportSection" class="management-section management-section-wide" data-role-section="entry_points">
-            <summary class="section-summary">
-              <span>
-                <span class="worker-action-label">Alpha Test</span>
-                <span id="managementAlphaSupportSummary" class="worker-action-detail">Readiness</span>
-              </span>
-            </summary>
-            <div class="management-section-body">
-              <div class="management-card-grid">
-                <article class="management-mini-card">
-                  <p class="management-mini-label">People</p>
-                  <p id="alphaPeopleValue" class="management-kpi-value">0</p>
-                  <p id="alphaPeopleNote" class="management-mini-note">Arbeiter und Rollen.</p>
-                </article>
-                <article class="management-mini-card">
-                  <p class="management-mini-label">Sites / QR</p>
-                  <p id="alphaSitesValue" class="management-kpi-value">0/0</p>
-                  <p id="alphaSitesNote" class="management-mini-note">Aktive Objekte mit QR.</p>
-                </article>
-                <article class="management-mini-card">
-                  <p class="management-mini-label">Meldungen</p>
-                  <p id="alphaRequestsValue" class="management-kpi-value">0</p>
-                  <p class="management-mini-note">Offene Worker-Meldungen.</p>
-                </article>
-                <article class="management-mini-card">
-                  <p class="management-mini-label">Time Test</p>
-                  <p id="alphaReadyValue" class="management-kpi-value">-</p>
-                  <p id="alphaReadyNote" class="management-mini-note">Braucht Worker und QR-Site.</p>
-                </article>
-              </div>
-              <p class="management-entry-state">Nur Lesestatus fuer den Alpha-Abend. Keine Reset- oder Admin-Aktionen in diesem Panel.</p>
-            </div>
-          </details>
-
           <details id="managementPeopleSection" class="management-section management-section-wide" data-role-section="people">
             <summary class="section-summary">
               <span>
@@ -2384,7 +2350,6 @@
       managementFinanceSection: document.getElementById("managementFinanceSection"),
       managementPartnersSection: document.getElementById("managementPartnersSection"),
       managementEntrySection: document.getElementById("managementEntrySection"),
-      managementAlphaSupportSection: document.getElementById("managementAlphaSupportSection"),
       managementPeopleSection: document.getElementById("managementPeopleSection"),
       managementSitesSection: document.getElementById("managementSitesSection"),
       managementWorkersSection: document.getElementById("managementWorkersSection"),
@@ -2393,7 +2358,6 @@
       managementFinanceSummary: document.getElementById("managementFinanceSummary"),
       managementPartnersSummary: document.getElementById("managementPartnersSummary"),
       managementEntrySummary: document.getElementById("managementEntrySummary"),
-      managementAlphaSupportSummary: document.getElementById("managementAlphaSupportSummary"),
       managementPeopleSummary: document.getElementById("managementPeopleSummary"),
       managementSitesSummary: document.getElementById("managementSitesSummary"),
       managementOpsNotCheckedIn: document.getElementById("managementOpsNotCheckedIn"),
@@ -2409,13 +2373,6 @@
       managementCalendarEntryNote: document.getElementById("managementCalendarEntryNote"),
       managementExportsEntryNote: document.getElementById("managementExportsEntryNote"),
       managementEntryState: document.getElementById("managementEntryState"),
-      alphaPeopleValue: document.getElementById("alphaPeopleValue"),
-      alphaPeopleNote: document.getElementById("alphaPeopleNote"),
-      alphaSitesValue: document.getElementById("alphaSitesValue"),
-      alphaSitesNote: document.getElementById("alphaSitesNote"),
-      alphaRequestsValue: document.getElementById("alphaRequestsValue"),
-      alphaReadyValue: document.getElementById("alphaReadyValue"),
-      alphaReadyNote: document.getElementById("alphaReadyNote"),
       managementPeopleGroups: document.getElementById("managementPeopleGroups"),
       managementSitesList: document.getElementById("managementSitesList"),
       managementSiteDetail: document.getElementById("managementSiteDetail"),
@@ -2711,7 +2668,6 @@
       );
       setDetailsOpen(elements.managementPartnersSection, allowed.has("partners") && !isCompact);
       setDetailsOpen(elements.managementEntrySection, allowed.has("entry_points"));
-      setDetailsOpen(elements.managementAlphaSupportSection, allowed.has("entry_points"));
       setDetailsOpen(elements.managementPeopleSection, allowed.has("people") && !isCompact);
       setDetailsOpen(elements.managementSitesSection, allowed.has("operations") && !isCompact);
       setDetailsOpen(elements.managementWorkersSection, allowed.has("people") && !isCompact);
@@ -2856,7 +2812,6 @@
       const partners = home && typeof home === "object" ? home.partners || {} : {};
       const sites = home && typeof home === "object" ? home.sites || {} : {};
       const people = home && typeof home === "object" ? home.people || {} : {};
-      const alphaSupport = home && typeof home === "object" ? home.alpha_support || {} : {};
       const quickEntries = home && typeof home === "object" ? home.quick_entries || {} : {};
       const workers = Array.isArray(payload?.workers) ? payload.workers : [];
 
@@ -2942,16 +2897,6 @@
             total: Number(people.total || 0),
             own_workers: normalisePeopleItems(people.own_workers),
             management: normalisePeopleItems(people.management),
-          },
-          alpha_support: {
-            people_total: Number(alphaSupport.people_total || 0),
-            own_workers: Number(alphaSupport.own_workers || 0),
-            management_roles: Number(alphaSupport.management_roles || 0),
-            sites_total: Number(alphaSupport.sites_total || 0),
-            sites_with_qr: Number(alphaSupport.sites_with_qr || 0),
-            joined_sites: Number(alphaSupport.joined_sites || 0),
-            open_requests: Number(alphaSupport.open_requests || 0),
-            ready_for_time_test: Boolean(alphaSupport.ready_for_time_test),
           },
           quick_entries: {
             people: Number(quickEntries.people || 0),
@@ -3166,7 +3111,6 @@
           : "Sobald Mitarbeiter vorhanden sind, erscheint hier die Gesamtzahl.";
 
       renderPartnerGroups(partners.groups);
-      renderAlphaSupport(data);
       renderPeople(data);
       renderSites(data);
       applyManagementRoleVisibility(data);
@@ -3376,25 +3320,6 @@
           <ul>${rights.map((right) => `<li>${escapeHtml(right)}</li>`).join("")}</ul>
         </details>
       `;
-    }
-
-    function renderAlphaSupport(data) {
-      const alpha = data.management_home.alpha_support;
-      elements.managementAlphaSupportSummary.textContent =
-        alpha.ready_for_time_test ? "Zeit-Test bereit" : "Noch nicht bereit";
-      elements.alphaPeopleValue.textContent = String(alpha.people_total);
-      elements.alphaPeopleNote.textContent =
-        `${alpha.own_workers} Worker, ${alpha.management_roles} Rollen.`;
-      elements.alphaSitesValue.textContent = `${alpha.sites_with_qr}/${alpha.sites_total}`;
-      elements.alphaSitesNote.textContent =
-        alpha.joined_sites > 0
-          ? `${alpha.joined_sites} verbunden, ${alpha.sites_with_qr} mit QR.`
-          : `${alpha.sites_with_qr} aktive Objekte mit QR.`;
-      elements.alphaRequestsValue.textContent = String(alpha.open_requests);
-      elements.alphaReadyValue.textContent = alpha.ready_for_time_test ? "OK" : "Offen";
-      elements.alphaReadyNote.textContent = alpha.ready_for_time_test
-        ? "Mindestens ein Worker und eine QR-Site sind vorhanden."
-        : "Fuer den Zeit-Test braucht es mindestens einen Worker und eine QR-Site.";
     }
 
     function openManagementSection(section) {
