@@ -36,6 +36,7 @@ from bot.keyboards.worker_kb import (
     get_problem_date_kb,
     get_worker_actions_kb,
 )
+from bot.i18n.translations import t
 from bot.redis_cache import redis_client
 from bot.utils.location import haversine
 from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_context_only_text
@@ -194,9 +195,7 @@ async def _calendar_result_text(
 
 
 def _time_tracking_disabled_text(locale: str) -> str:
-    if locale == "de":
-        return "Zeiterfassung ist fuer Ihr Konto nicht aktiviert. Admin- und Dashboard-Zugriff bleiben unveraendert."
-    return "Time tracking is not enabled for your account. Admin and dashboard access stay unchanged."
+    return t("time_tracking_disabled", locale)
 
 
 TIME_EVENT_ACTIONS = {
@@ -390,12 +389,7 @@ async def start_time_event_action(message: Message, state: FSMContext, current_w
     await state.clear()
     await state.update_data(pending_event=next_event.value)
     await state.set_state(TimeEventSelectionStates.waiting_for_site_qr)
-    text = (
-        f"Aktion: {_event_label(next_event, locale)}\n"
-        "Scannen Sie jetzt den Objekt-QR."
-        if locale == "de"
-        else f"Action: {_event_label(next_event, locale)}\nScan the site QR now."
-    )
+    text = t("time_action_scan_prompt", locale).format(action=_event_label(next_event, locale))
     await message.answer(text)
 
 
@@ -558,7 +552,7 @@ async def cmd_start_site(message: Message, state: FSMContext, session: AsyncSess
     site = (await session.execute(stmt)).scalar_one_or_none()
     
     if not site:
-        text = "Dieser QR-Code ist ungültig oder die Baustelle wurde deaktiviert." if locale == "de" else "Цей QR-код недійсний або об'єкт деактивовано."
+        text = t("site_qr_invalid", locale)
         await message.answer(text)
         return
 

@@ -346,7 +346,7 @@ def _people_site_focus_kb(locale: str, sites: list[Site], current_site_id: int |
         prefix = "[x]" if site.id == current_site_id else "[ ]"
         rows.append([InlineKeyboardButton(text=f"{prefix} {site.name}", callback_data=f"people_site_{site.id}")])
     none_prefix = "[x]" if current_site_id is None else "[ ]"
-    none_text = "Kein Objektfokus" if locale == "de" else "No site focus"
+    none_text = t("people_no_site_focus", locale)
     back_text = "Zurueck" if locale == "de" else "Back"
     rows.append([InlineKeyboardButton(text=f"{none_prefix} {none_text}", callback_data="people_site_none")])
     rows.append([InlineKeyboardButton(text=back_text, callback_data="people_edit_back")])
@@ -378,7 +378,7 @@ async def _send_people_edit_menu(
     edit: bool = False,
 ) -> None:
     site = await session.get(Site, person.site_id) if person.site_id else None
-    site_label = site.name if site else ("Kein Objektfokus" if locale == "de" else "No site focus")
+    site_label = site.name if site else t("people_no_site_focus", locale)
     lines = [
         f"Person: {_worker_display_name(person)}",
         "",
@@ -805,7 +805,7 @@ async def choose_company_profile_edit_field(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -910,7 +910,7 @@ async def process_company_profile_legal_form(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -1081,7 +1081,7 @@ async def cmd_partner_status(
 ):
     await state.clear()
     if not current_worker or not can_access_dashboard(current_worker):
-        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await message.answer(t("access_denied", locale))
         return
 
     if bot_config.is_platform_bot:
@@ -1098,16 +1098,10 @@ async def cmd_partner_status(
             )
         ).all()
         if not partnerships:
-            await message.answer(
-                "Noch keine beigetretene Baustelle gefunden."
-                if locale == "de"
-                else "No joined site found yet."
-            )
+            await message.answer(t("partner_joined_none", locale))
             return
 
-        lines = ["Beigetretene Baustellen", ""]
-        if locale != "de":
-            lines = ["Joined sites", ""]
+        lines = [t("partner_joined_title", locale), ""]
         for _partnership, site in partnerships:
             general_contractor = await session.get(Company, site.company_id)
             assigned_count = len(
@@ -1149,12 +1143,10 @@ async def cmd_partner_status(
         )
     ).scalars().all()
     if not sites:
-        await message.answer("Noch keine aktive Baustelle." if locale == "de" else "No active sites yet.")
+        await message.answer(t("people_no_active_site", locale))
         return
 
-    lines = ["Partnerfirmen", ""]
-    if locale != "de":
-        lines = ["Partner companies", ""]
+    lines = [t("partner_companies_title", locale), ""]
     for site in sites:
         partners = (
             await session.execute(
@@ -1169,7 +1161,7 @@ async def cmd_partner_status(
         ).all()
         lines.append(site.name)
         if not partners:
-            lines.append("- Keine Partnerfirma verbunden." if locale == "de" else "- No partner company connected.")
+            lines.append(t("partner_no_company_connected", locale))
             lines.append("")
             continue
         for _partnership, company in partners:
@@ -1364,7 +1356,7 @@ async def cmd_people(
 ):
     await state.clear()
     if not _can_edit_company_profile(current_worker):
-        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await message.answer(t("access_denied", locale))
         return
 
     people = (
@@ -1375,7 +1367,7 @@ async def cmd_people(
         )
     ).scalars().all()
     if not people:
-        await message.answer("Keine Personen gefunden." if locale == "de" else "No people found.")
+        await message.answer(t("people_none_found", locale))
         return
 
     site_ids = {person.site_id for person in people if person.site_id}
@@ -1384,9 +1376,7 @@ async def cmd_people(
         sites = (await session.execute(select(Site).where(Site.id.in_(site_ids)))).scalars().all()
         sites_by_id = {site.id: site for site in sites}
 
-    lines = ["Personen", "", "Senden Sie die Nummer einer Person, um sie zu bearbeiten."]
-    if locale != "de":
-        lines = ["People", "", "Send a person's number to edit."]
+    lines = [t("people_title", locale), "", t("people_select_prompt", locale)]
     for index, person in enumerate(people, start=1):
         site = sites_by_id.get(person.site_id) if person.site_id else None
         site_part = f" - {site.name}" if site else ""
@@ -1411,28 +1401,28 @@ async def process_people_person_selection(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await message.answer(t("access_denied", locale))
         return
 
     raw = (message.text or "").strip().lower()
     if raw in {"/cancel", "cancel", "abbrechen"}:
         await state.clear()
-        await message.answer("Bearbeitung abgebrochen." if locale == "de" else "Edit cancelled.")
+        await message.answer(t("people_edit_cancelled", locale))
         return
     if not raw.isdigit():
-        await message.answer("Bitte eine Nummer aus der Liste senden." if locale == "de" else "Please send a number from the list.")
+        await message.answer(t("people_number_prompt", locale))
         return
 
     data = await state.get_data()
     people_ids = list(data.get("people_edit_ids") or [])
     index = int(raw) - 1
     if index < 0 or index >= len(people_ids):
-        await message.answer("Bitte eine Nummer aus der Liste senden." if locale == "de" else "Please send a number from the list.")
+        await message.answer(t("people_number_prompt", locale))
         return
 
     person = await _owner_person_for_edit(session, current_worker, people_ids[index])
     if not person:
-        await message.answer("Person nicht gefunden." if locale == "de" else "Person not found.")
+        await message.answer(t("people_not_found", locale))
         return
 
     await state.update_data(people_edit_worker_id=person.id)
@@ -1443,7 +1433,7 @@ async def process_people_person_selection(
 @router.callback_query(PeopleEditStates.editing_person, F.data == "people_edit_done")
 async def finish_people_edit(callback: CallbackQuery, state: FSMContext, locale: str):
     await state.clear()
-    await callback.message.edit_text("Person gespeichert." if locale == "de" else "Person saved.")
+    await callback.message.edit_text(t("people_saved", locale))
     await callback.answer()
 
 
@@ -1457,7 +1447,7 @@ async def back_to_people_edit_menu(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -1465,7 +1455,7 @@ async def back_to_people_edit_menu(
     person = await _owner_person_for_edit(session, current_worker, data.get("people_edit_worker_id"))
     if not person:
         await state.clear()
-        await callback.message.edit_text("Person nicht gefunden." if locale == "de" else "Person not found.")
+        await callback.message.edit_text(t("people_not_found", locale))
         await callback.answer()
         return
     await _send_people_edit_menu(callback.message, session, current_worker, person, locale, edit=True)
@@ -1485,7 +1475,7 @@ async def open_people_edit_section(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -1493,31 +1483,31 @@ async def open_people_edit_section(
     person = await _owner_person_for_edit(session, current_worker, data.get("people_edit_worker_id"))
     if not person:
         await state.clear()
-        await callback.message.edit_text("Person nicht gefunden." if locale == "de" else "Person not found.")
+        await callback.message.edit_text(t("people_not_found", locale))
         await callback.answer()
         return
 
     if callback.data == "people_edit_role":
         if person.access_role == WorkerAccessRole.COMPANY_OWNER.value:
-            await callback.answer("Owner-Rolle bleibt geschuetzt." if locale == "de" else "Owner role stays protected.")
+            await callback.answer(t("people_owner_role_protected", locale))
             return
         await callback.message.edit_text(
-            "Welche Rolle soll diese Person haben?" if locale == "de" else "Which role should this person have?",
+            t("people_role_edit_prompt", locale),
             reply_markup=get_people_role_edit_kb(locale),
         )
     elif callback.data == "people_edit_employment_type":
         await callback.message.edit_text(
-            "Welche Anstellungsart hat diese Person?" if locale == "de" else "Which employment type does this person have?",
+            t("people_employment_type_edit_prompt", locale),
             reply_markup=get_people_employment_type_kb(locale),
         )
     elif callback.data == "people_edit_employment_status":
         await callback.message.edit_text(
-            "Welchen Status hat diese Person?" if locale == "de" else "Which status does this person have?",
+            t("people_status_edit_prompt", locale),
             reply_markup=get_people_employment_status_kb(locale),
         )
     else:
         if person.access_role != WorkerAccessRole.OBJEKTMANAGER.value:
-            await callback.answer("Objektfokus gilt nur fuer Objektmanager." if locale == "de" else "Site focus is only for object managers.")
+            await callback.answer(t("people_site_focus_only_manager", locale))
             return
         sites = (
             await session.execute(
@@ -1528,10 +1518,10 @@ async def open_people_edit_section(
             )
         ).scalars().all()
         if not sites:
-            await callback.answer("Noch keine aktive Baustelle." if locale == "de" else "No active sites yet.")
+            await callback.answer(t("people_no_active_site", locale))
             return
         await callback.message.edit_text(
-            "Objektfokus waehlen." if locale == "de" else "Choose site focus.",
+            t("people_choose_site_focus", locale),
             reply_markup=_people_site_focus_kb(locale, sites, person.site_id),
         )
     await callback.answer()
@@ -1547,7 +1537,7 @@ async def update_people_role(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -1564,11 +1554,11 @@ async def update_people_role(
     person = await _owner_person_for_edit(session, current_worker, data.get("people_edit_worker_id"))
     if not person:
         await state.clear()
-        await callback.message.edit_text("Person nicht gefunden." if locale == "de" else "Person not found.")
+        await callback.message.edit_text(t("people_not_found", locale))
         await callback.answer()
         return
     if person.access_role == WorkerAccessRole.COMPANY_OWNER.value:
-        await callback.answer("Owner-Rolle bleibt geschuetzt." if locale == "de" else "Owner role stays protected.")
+        await callback.answer(t("people_owner_role_protected", locale))
         return
 
     person.access_role = role
@@ -1593,7 +1583,7 @@ async def update_people_employment_type(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -1606,7 +1596,7 @@ async def update_people_employment_type(
     person = await _owner_person_for_edit(session, current_worker, data.get("people_edit_worker_id"))
     if not person:
         await state.clear()
-        await callback.message.edit_text("Person nicht gefunden." if locale == "de" else "Person not found.")
+        await callback.message.edit_text(t("people_not_found", locale))
         await callback.answer()
         return
 
@@ -1630,7 +1620,7 @@ async def update_people_employment_status(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -1643,7 +1633,7 @@ async def update_people_employment_status(
     person = await _owner_person_for_edit(session, current_worker, data.get("people_edit_worker_id"))
     if not person:
         await state.clear()
-        await callback.message.edit_text("Person nicht gefunden." if locale == "de" else "Person not found.")
+        await callback.message.edit_text(t("people_not_found", locale))
         await callback.answer()
         return
     if person.id == current_worker.id and employment_status in {
@@ -1652,7 +1642,7 @@ async def update_people_employment_status(
         EmploymentStatus.COMPLETED.value,
         EmploymentStatus.INACTIVE.value,
     }:
-        await callback.answer("Eigener Owner-Zugang bleibt aktiv." if locale == "de" else "Your owner access stays active.")
+        await callback.answer(t("people_self_owner_active", locale))
         return
 
     person.employment_status = employment_status
@@ -1682,7 +1672,7 @@ async def update_people_site_focus(
 ):
     if not _can_edit_company_profile(current_worker):
         await state.clear()
-        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.message.edit_text(t("access_denied", locale))
         await callback.answer()
         return
 
@@ -1690,11 +1680,11 @@ async def update_people_site_focus(
     person = await _owner_person_for_edit(session, current_worker, data.get("people_edit_worker_id"))
     if not person:
         await state.clear()
-        await callback.message.edit_text("Person nicht gefunden." if locale == "de" else "Person not found.")
+        await callback.message.edit_text(t("people_not_found", locale))
         await callback.answer()
         return
     if person.access_role != WorkerAccessRole.OBJEKTMANAGER.value:
-        await callback.answer("Objektfokus gilt nur fuer Objektmanager." if locale == "de" else "Site focus is only for object managers.")
+        await callback.answer(t("people_site_focus_only_manager", locale))
         return
 
     site_token = callback.data.removeprefix("people_site_")
@@ -1703,7 +1693,7 @@ async def update_people_site_focus(
     elif site_token.isdigit():
         site = await session.get(Site, int(site_token))
         if not site or site.company_id != current_worker.company_id or not site.is_active:
-            await callback.answer("Baustelle nicht gefunden." if locale == "de" else "Site not found.")
+            await callback.answer(t("site_not_found", locale))
             return
         person.site_id = site.id
     else:
