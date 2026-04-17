@@ -479,7 +479,7 @@ async def _create_subcontractor_company_invite(
     session: AsyncSession,
     locale: str,
 ) -> None:
-    if not current_worker or not can_access_dashboard(current_worker):
+    if not _can_edit_company_profile(current_worker):
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
     if not _is_dedicated_client_bot():
@@ -1212,7 +1212,7 @@ async def cmd_assign_partner_site_team(
     if not bot_config.is_platform_bot:
         await message.answer(t("team_assignment_wrong_chat", locale))
         return
-    if not current_worker or not can_access_dashboard(current_worker):
+    if not _can_edit_company_profile(current_worker):
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
 
@@ -1279,7 +1279,7 @@ async def process_assign_partner_site_team_selection(
     current_worker: Worker | None,
     locale: str,
 ):
-    if not bot_config.is_platform_bot or not current_worker or not can_access_dashboard(current_worker):
+    if not bot_config.is_platform_bot or not _can_edit_company_profile(current_worker):
         await state.clear()
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
@@ -1590,11 +1590,14 @@ async def update_people_role(
         await callback.answer(t("people_owner_role_protected", locale))
         return
 
+    previous_role = person.access_role
     person.access_role = role
     person.can_view_dashboard = role in {
         WorkerAccessRole.OBJEKTMANAGER.value,
         WorkerAccessRole.ACCOUNTANT.value,
     }
+    if previous_role == WorkerAccessRole.OBJEKTMANAGER.value and role == WorkerAccessRole.ACCOUNTANT.value:
+        person.site_id = None
     session.add(person)
     await session.commit()
     await session.refresh(person)
@@ -2079,7 +2082,7 @@ async def process_site_name(message: Message, state: FSMContext, session: AsyncS
 
 @router.message(Command("add_site"))
 async def cmd_add_site(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
-    if not can_access_dashboard(current_worker):
+    if not _can_edit_company_profile(current_worker):
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
 
@@ -2121,7 +2124,7 @@ async def process_add_site_role(
     current_worker: Worker | None,
     locale: str,
 ):
-    if not can_access_dashboard(current_worker):
+    if not _can_edit_company_profile(current_worker):
         await state.clear()
         await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
         await callback.answer()
@@ -2160,7 +2163,7 @@ async def process_add_site_role(
 
 @router.message(Command("add_worker"))
 async def cmd_add_worker(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
-    if not can_access_dashboard(current_worker):
+    if not _can_edit_company_profile(current_worker):
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return
 
@@ -2318,6 +2321,12 @@ async def process_person_access_role(
     current_worker: Worker | None,
     locale: str,
 ):
+    if not _can_edit_company_profile(current_worker):
+        await state.clear()
+        await callback.message.edit_text("Keine Berechtigung." if locale == "de" else "Access denied.")
+        await callback.answer()
+        return
+
     access_role = callback.data.removeprefix("person_role_")
     if access_role not in {
         WorkerAccessRole.WORKER.value,
@@ -2401,7 +2410,7 @@ async def process_objektmanager_flag(
 
 
 async def generate_invite_link(message: Message, state: FSMContext, current_worker: Worker | None, locale: str):
-    if not current_worker:
+    if not _can_edit_company_profile(current_worker):
         await state.clear()
         await message.answer("Keine Berechtigung." if locale == "de" else "Access denied.")
         return

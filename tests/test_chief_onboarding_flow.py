@@ -661,6 +661,19 @@ def test_owner_can_edit_existing_person_role_employment_and_site_focus(monkeypat
         await session.refresh(person)
         assert person.site_id == site.id
 
+        callback.data = f"people_role_{WorkerAccessRole.ACCOUNTANT.value}"
+        await chief_handler.update_people_role(
+            callback=callback,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+        await session.refresh(person)
+        assert person.access_role == WorkerAccessRole.ACCOUNTANT.value
+        assert person.can_view_dashboard is True
+        assert person.site_id is None
+
     run_db_test(run_test)
 
 
@@ -805,6 +818,7 @@ def test_owner_add_site_creates_site_with_product_role(monkeypatch):
             company_id=company.id,
             is_active=True,
             can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
         )
         send_qr = AsyncMock()
         monkeypatch.setattr(chief_handler, "_send_site_qr", send_qr)
@@ -846,7 +860,13 @@ def test_owner_adds_plain_worker_without_management_rights(monkeypatch):
             message=SimpleNamespace(edit_text=AsyncMock()),
             answer=AsyncMock(),
         )
-        current_worker = SimpleNamespace(id=1, company_id=1, is_active=True, can_view_dashboard=True)
+        current_worker = SimpleNamespace(
+            id=1,
+            company_id=1,
+            is_active=True,
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
 
         await chief_handler.process_person_access_role(
             callback=callback,
@@ -861,6 +881,49 @@ def test_owner_adds_plain_worker_without_management_rights(monkeypatch):
         assert "ohne Managementrechte" in callback.message.edit_text.await_args.args[0]
         assert "Rollenrechte" not in callback.message.edit_text.await_args.args[0]
         generate_invite.assert_awaited_once()
+
+    asyncio.run(run_test())
+
+
+def test_objektmanager_cannot_use_owner_mutation_commands():
+    async def run_test():
+        state = FakeState()
+        message = FakeMessage("manager")
+        manager = SimpleNamespace(
+            id=2,
+            company_id=1,
+            is_active=True,
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.OBJEKTMANAGER.value,
+        )
+
+        await chief_handler.cmd_add_worker(
+            message=message,
+            state=state,
+            current_worker=manager,
+            locale="de",
+        )
+        assert state.current_state is None
+        assert "Keine Berechtigung" in message.answer.await_args.args[0]
+
+        message.answer.reset_mock()
+        await chief_handler.cmd_add_site(
+            message=message,
+            state=state,
+            current_worker=manager,
+            locale="de",
+        )
+        assert state.current_state is None
+        assert "Keine Berechtigung" in message.answer.await_args.args[0]
+
+        message.answer.reset_mock()
+        await chief_handler.generate_invite_link(
+            message=message,
+            state=state,
+            current_worker=manager,
+            locale="de",
+        )
+        assert "Keine Berechtigung" in message.answer.await_args.args[0]
 
     asyncio.run(run_test())
 
@@ -883,7 +946,13 @@ def test_worker_invite_payload_includes_canonical_employment(monkeypatch):
             bot=SimpleNamespace(get_me=AsyncMock(return_value=SimpleNamespace(username="bauuhrbot"))),
             answer_photo=AsyncMock(),
         )
-        current_worker = SimpleNamespace(id=7, company_id=3)
+        current_worker = SimpleNamespace(
+            id=7,
+            company_id=3,
+            is_active=True,
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
 
         await chief_handler.generate_invite_link(message, state, current_worker, "de")
 
@@ -912,7 +981,13 @@ def test_owner_adds_accountant_with_collapsible_rights_confirmation(monkeypatch)
             message=SimpleNamespace(edit_text=AsyncMock()),
             answer=AsyncMock(),
         )
-        current_worker = SimpleNamespace(id=1, company_id=1, is_active=True, can_view_dashboard=True)
+        current_worker = SimpleNamespace(
+            id=1,
+            company_id=1,
+            is_active=True,
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
 
         await chief_handler.process_person_access_role(
             callback=callback,
