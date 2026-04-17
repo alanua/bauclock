@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db.models import WorkerAccessRole, WorkerType
+from db.models import EmploymentStatus, EmploymentType, WorkerAccessRole, WorkerType
 
 
 LEGAL_FORM_OPTIONS = [
@@ -10,6 +10,27 @@ LEGAL_FORM_OPTIONS = [
     ("gbr", "GbR"),
     ("einzelunternehmen", "Einzelunternehmen"),
     ("other", "Sonstiges"),
+]
+
+EMPLOYMENT_TYPE_OPTIONS = [
+    (EmploymentType.EMPLOYEE_FULL_TIME.value, "Vollzeit"),
+    (EmploymentType.EMPLOYEE_PART_TIME.value, "Teilzeit"),
+    (EmploymentType.MINIJOB.value, "Minijob"),
+    (EmploymentType.TEMPORARY.value, "Befristet"),
+    (EmploymentType.TRIAL_PERIOD.value, "Probezeit"),
+    (EmploymentType.SELF_EMPLOYED.value, "Selbststaendig"),
+    (EmploymentType.EXTERNAL_ACCOUNTANT.value, "Externer Accountant"),
+    (EmploymentType.OTHER.value, "Sonstiges"),
+]
+
+EMPLOYMENT_STATUS_OPTIONS = [
+    (EmploymentStatus.ACTIVE.value, "Aktiv"),
+    (EmploymentStatus.TRIAL_ACTIVE.value, "Probezeit aktiv"),
+    (EmploymentStatus.PAUSED.value, "Pausiert"),
+    (EmploymentStatus.TERMINATED.value, "Gekuendigt"),
+    (EmploymentStatus.COMPLETED.value, "Beendet"),
+    (EmploymentStatus.CONVERTED.value, "Konvertiert"),
+    (EmploymentStatus.INACTIVE.value, "Inaktiv"),
 ]
 
 
@@ -78,6 +99,61 @@ def get_role_rights_confirm_kb(locale: str, *, expanded: bool = False) -> Inline
         [InlineKeyboardButton(text=confirm_text, callback_data="role_rights_confirm")],
         [InlineKeyboardButton(text=cancel_text, callback_data="cancel_action")],
     ])
+
+
+def get_people_edit_menu_kb(locale: str, *, access_role: str | None) -> InlineKeyboardMarkup:
+    site_text = "Objektfokus" if locale == "de" else "Site focus"
+    done_text = "Fertig" if locale == "de" else "Done"
+    keys = [
+        [InlineKeyboardButton(text="Rolle" if locale == "de" else "Role", callback_data="people_edit_role")],
+        [
+            InlineKeyboardButton(
+                text="Anstellungsart" if locale == "de" else "Employment type",
+                callback_data="people_edit_employment_type",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Status" if locale == "de" else "Status",
+                callback_data="people_edit_employment_status",
+            )
+        ],
+    ]
+    if access_role == WorkerAccessRole.OBJEKTMANAGER.value:
+        keys.append([InlineKeyboardButton(text=site_text, callback_data="people_edit_site_focus")])
+    keys.append([InlineKeyboardButton(text=done_text, callback_data="people_edit_done")])
+    return InlineKeyboardMarkup(inline_keyboard=keys)
+
+
+def get_people_role_edit_kb(locale: str) -> InlineKeyboardMarkup:
+    back_text = "Zurueck" if locale == "de" else "Back"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Worker", callback_data=f"people_role_{WorkerAccessRole.WORKER.value}")],
+        [
+            InlineKeyboardButton(
+                text="Objektmanager" if locale == "de" else "Object manager",
+                callback_data=f"people_role_{WorkerAccessRole.OBJEKTMANAGER.value}",
+            )
+        ],
+        [InlineKeyboardButton(text="Accountant", callback_data=f"people_role_{WorkerAccessRole.ACCOUNTANT.value}")],
+        [InlineKeyboardButton(text=back_text, callback_data="people_edit_back")],
+    ])
+
+
+def get_people_employment_type_kb(locale: str) -> InlineKeyboardMarkup:
+    back_text = "Zurueck" if locale == "de" else "Back"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data=f"people_etype_{value}")]
+        for value, label in EMPLOYMENT_TYPE_OPTIONS
+    ] + [[InlineKeyboardButton(text=back_text, callback_data="people_edit_back")]])
+
+
+def get_people_employment_status_kb(locale: str) -> InlineKeyboardMarkup:
+    back_text = "Zurueck" if locale == "de" else "Back"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data=f"people_estatus_{value}")]
+        for value, label in EMPLOYMENT_STATUS_OPTIONS
+    ] + [[InlineKeyboardButton(text=back_text, callback_data="people_edit_back")]])
 
 
 def get_site_role_kb(locale: str) -> InlineKeyboardMarkup:

@@ -39,5 +39,9 @@ class AddWorkerStates(StatesGroup):
     waiting_for_access_role = State()
     waiting_for_role_rights_confirmation = State()
 
+class PeopleEditStates(StatesGroup):
+    waiting_for_person_selection = State()
+    editing_person = State()
+
 class AssignPartnerSiteTeamStates(StatesGroup):
     waiting_for_selection = State()

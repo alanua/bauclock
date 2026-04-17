@@ -539,6 +539,131 @@ def test_owner_alpha_onboarding_creates_owner_company_and_public_profile(monkeyp
     run_db_test(run_test)
 
 
+def test_owner_can_edit_existing_person_role_employment_and_site_focus(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(chief_handler, "decrypt_string", lambda value: value)
+        company = Company(
+            name="People Bau",
+            owner_telegram_id_enc="owner_enc",
+            owner_telegram_id_hash=hash_string("123456"),
+        )
+        session.add(company)
+        await session.flush()
+
+        site = Site(
+            company_id=company.id,
+            name="People Site",
+            qr_token="site_people",
+            is_active=True,
+        )
+        owner = Worker(
+            company_id=company.id,
+            telegram_id_enc="owner_enc",
+            telegram_id_hash=hash_string("123456"),
+            full_name_enc="Owner Name",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        person = Worker(
+            company_id=company.id,
+            telegram_id_enc="person_enc",
+            telegram_id_hash=hash_string("654321"),
+            full_name_enc="Person Name",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.WORKER.value,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        session.add_all([site, owner, person])
+        await session.commit()
+
+        state = FakeState()
+        message = FakeMessage("Owner")
+        await chief_handler.cmd_people(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+        assert state.current_state == chief_handler.PeopleEditStates.waiting_for_person_selection
+        assert "Person Name" in message.answer.await_args.args[0]
+
+        message.text = "2"
+        await chief_handler.process_people_person_selection(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+        assert state.current_state == chief_handler.PeopleEditStates.editing_person
+
+        callback = SimpleNamespace(
+            data=f"people_role_{WorkerAccessRole.OBJEKTMANAGER.value}",
+            message=SimpleNamespace(edit_text=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        await chief_handler.update_people_role(
+            callback=callback,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+        await session.refresh(person)
+        assert person.access_role == WorkerAccessRole.OBJEKTMANAGER.value
+        assert person.can_view_dashboard is True
+
+        callback.data = f"people_etype_{EmploymentType.TRIAL_PERIOD.value}"
+        await chief_handler.update_people_employment_type(
+            callback=callback,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+        await session.refresh(person)
+        assert person.employment_type == EmploymentType.TRIAL_PERIOD.value
+        assert person.employment_status == EmploymentStatus.TRIAL_ACTIVE.value
+
+        callback.data = f"people_estatus_{EmploymentStatus.PAUSED.value}"
+        await chief_handler.update_people_employment_status(
+            callback=callback,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+        await session.refresh(person)
+        assert person.employment_status == EmploymentStatus.PAUSED.value
+        assert person.is_active is False
+        assert person.ended_at is not None
+
+        callback.data = f"people_site_{site.id}"
+        await chief_handler.update_people_site_focus(
+            callback=callback,
+            state=state,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+        await session.refresh(person)
+        assert person.site_id == site.id
+
+    run_db_test(run_test)
+
+
 def test_owner_company_profile_edit_updates_company_and_public_profile():
     async def run_test(session):
         company = Company(
