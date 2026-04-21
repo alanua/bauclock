@@ -31,4 +31,8 @@ async def dashboard_data(
     token: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
+    try:
+        await get_dashboard_context(token, db, redis_client)
+    except DashboardAccessError as exc:
+        raise dashboard_views._dashboard_access_denied() from exc
     return await dashboard_views.dashboard_data(token=token, telegram_init_data=None, db=db)
