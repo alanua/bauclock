@@ -192,6 +192,11 @@ async def process_new_rate(
     current_worker: Worker,
     locale: str,
 ):
+    if not can_manage_rates(current_worker):
+        await state.clear()
+        await message.answer("Zugriff verweigert." if locale == "de" else "Access denied.")
+        return
+
     try:
         new_rate = float((message.text or "").replace(",", "."))
     except ValueError:

@@ -1,19 +1,14 @@
-import csv
 from datetime import datetime
-from io import StringIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from access.legacy_policy import can_manage_payments
 from api.redis_client import redis_client
-from api.services.audit_logger import log_audit_event
+from api.services.datev_export import DatevExportError, export_datev_csv
 from api.services.dashboard_access import DashboardAccessError, get_dashboard_worker
 from db.database import get_db
-from db.models import Payment, PaymentType, Worker
-from db.security import decrypt_string
 
 
 router = APIRouter()
@@ -42,62 +37,12 @@ async def export_datev(
     if not can_manage_payments(actor_worker):
         raise _admin_access_denied()
 
-    stmt = (
-        select(Payment, Worker)
-        .join(Worker, Payment.worker_id == Worker.id)
-        .where(
-            Payment.period_start >= start_date,
-            Payment.period_end <= end_date,
-            Payment.status == "CONFIRMED",
-            Payment.payment_type == PaymentType.CONTRACT,
-            Worker.company_id == actor_worker.company_id,
+    try:
+        return await export_datev_csv(
+            db,
+            actor_worker=actor_worker,
+            start_date=start_date,
+            end_date=end_date,
         )
-    )
-    result = await db.execute(stmt)
-    records = result.all()
-
-    output = StringIO()
-    writer = csv.writer(output, delimiter=";")
-    writer.writerow(
-        [
-            "Worker Name",
-            "Worker Type",
-            "Hours Paid",
-            "Hourly Rate",
-            "Total Amount Base",
-            "Period Start",
-            "Period End",
-        ]
-    )
-
-    for payment, worker in records:
-        writer.writerow(
-            [
-                decrypt_string(worker.full_name_enc),
-                worker.worker_type.value,
-                f"{payment.hours_paid:.2f}",
-                f"{(worker.hourly_rate or 0.0):.2f}",
-                f"{payment.amount_paid:.2f}",
-                payment.period_start.isoformat(),
-                payment.period_end.isoformat(),
-            ]
-        )
-
-    await log_audit_event(
-        db,
-        entity_type="datev_export",
-        entity_id=0,
-        action="datev_export_triggered",
-        old_value=None,
-        new_value={
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
-            "rows": len(records),
-            "payment_type": PaymentType.CONTRACT.value,
-        },
-        performed_by_worker_id=actor_worker.id,
-        company_id=actor_worker.company_id,
-    )
-    await db.commit()
-
-    return output.getvalue()
+    except DatevExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

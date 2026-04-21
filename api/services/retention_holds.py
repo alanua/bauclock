@@ -12,6 +12,38 @@ def _effective_now(now: datetime | None) -> datetime:
     return now or datetime.now(timezone.utc)
 
 
+def _normalized_hold_reason(hold: RetentionHold) -> str | None:
+    return (getattr(hold, "hold_reason", None) or getattr(hold, "reason", None) or None)
+
+
+def _normalized_hold_until(hold: RetentionHold) -> datetime | None:
+    return getattr(hold, "hold_until", None) or getattr(hold, "expires_at", None)
+
+
+def normalized_retention_hold_view(
+    hold: RetentionHold,
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    effective_now = _effective_now(now)
+    hold_until = _normalized_hold_until(hold)
+    is_active = bool(
+        getattr(hold, "is_active", False)
+        and (hold_until is None or hold_until > effective_now)
+    )
+    return {
+        "id": int(hold.id),
+        "entity_type": str(hold.entity_type),
+        "entity_id": int(hold.entity_id),
+        "hold_type": str(hold.hold_type),
+        "hold_reason": _normalized_hold_reason(hold),
+        "hold_until": hold_until,
+        "held_by_worker_id": getattr(hold, "held_by_worker_id", None),
+        "company_id": getattr(hold, "company_id", None),
+        "is_active": is_active,
+    }
+
+
 def _active_hold_filter(*, now: datetime):
     return and_(
         RetentionHold.is_active.is_(True),
@@ -86,20 +118,16 @@ async def expire_retention_holds(
     effective_now = _effective_now(now)
     holds = (
         await db.execute(
-            select(RetentionHold).where(
-                RetentionHold.is_active.is_(True),
-                or_(
-                    RetentionHold.hold_until <= effective_now,
-                    and_(RetentionHold.hold_until.is_(None), RetentionHold.expires_at <= effective_now),
-                ),
-            )
+            select(RetentionHold).where(RetentionHold.is_active.is_(True))
         )
     ).scalars().all()
     for hold in holds:
-        hold.is_active = False
-        db.add(hold)
+        hold_until = _normalized_hold_until(hold)
+        if hold_until is not None and hold_until <= effective_now:
+            hold.is_active = False
+            db.add(hold)
     await db.flush()
-    return len(holds)
+    return sum(1 for hold in holds if not bool(hold.is_active))
 
 
 async def is_entity_on_retention_hold(
@@ -134,3 +162,31 @@ async def active_retention_hold_entity_ids(
         )
     )
     return {int(entity_id) for entity_id in result.scalars().all()}
+
+
+async def list_normalized_retention_holds(
+    db: AsyncSession,
+    *,
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    company_id: int | None = None,
+    include_inactive: bool = False,
+    now: datetime | None = None,
+) -> list[dict[str, object]]:
+    effective_now = _effective_now(now)
+    stmt = select(RetentionHold).order_by(RetentionHold.created_at.desc(), RetentionHold.id.desc())
+    if entity_type is not None:
+        stmt = stmt.where(RetentionHold.entity_type == entity_type)
+    if entity_id is not None:
+        stmt = stmt.where(RetentionHold.entity_id == entity_id)
+    if company_id is not None:
+        stmt = stmt.where(RetentionHold.company_id == company_id)
+
+    holds = (await db.execute(stmt)).scalars().all()
+    normalized = [
+        normalized_retention_hold_view(hold, now=effective_now)
+        for hold in holds
+    ]
+    if include_inactive:
+        return normalized
+    return [hold for hold in normalized if bool(hold["is_active"])]

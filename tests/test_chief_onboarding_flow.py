@@ -92,6 +92,7 @@ def install_import_stubs() -> None:
 
 install_import_stubs()
 
+from bot.handlers import admin as admin_handler
 from bot.handlers import chief as chief_handler
 from db.models import (
     Base,
@@ -924,6 +925,36 @@ def test_objektmanager_cannot_use_owner_mutation_commands():
             locale="de",
         )
         assert "Keine Berechtigung" in message.answer.await_args.args[0]
+
+    asyncio.run(run_test())
+
+
+def test_accountant_cannot_commit_rate_mutations_through_admin_state_handler():
+    async def run_test():
+        state = FakeState()
+        await state.update_data(edit_worker_id=99)
+        message = FakeMessage("accountant")
+        session = SimpleNamespace(get=AsyncMock())
+        accountant = SimpleNamespace(
+            id=5,
+            company_id=1,
+            is_active=True,
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.ACCOUNTANT.value,
+        )
+
+        await admin_handler.process_new_rate(
+            message=message,
+            state=state,
+            session=session,
+            current_worker=accountant,
+            locale="de",
+        )
+
+        session.get.assert_not_awaited()
+        assert state.current_state is None
+        assert state.data == {}
+        assert "Zugriff verweigert" in message.answer.await_args.args[0]
 
     asyncio.run(run_test())
 
