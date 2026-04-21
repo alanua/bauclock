@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     APP_URL: str = "https://sekbot.duckdns.org"
     ADMIN_USERNAMES: list[str] = []
     PLATFORM_SUPERADMIN_USERNAMES: list[str] = ["AnOleksii"]
+    ENABLE_RETENTION: bool = False
+    RETENTION_DRY_RUN: bool = True
+    DATA_RETENTION_YEARS_TIME_EVENTS: int = 3
+    DATA_RETENTION_YEARS_AUDIT_LOGS: int = 5
 
     @field_validator("ADMIN_USERNAMES", "PLATFORM_SUPERADMIN_USERNAMES", mode="before")
     @classmethod

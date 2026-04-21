@@ -7,6 +7,8 @@ from access.legacy_policy import can_view_admin_features
 from api.bot_client import send_telegram_message, send_telegram_document
 from api.logger import logger
 from api.config import settings
+from api.services.arbzg_policy import get_worker_arbzg_flags
+from api.services.retention import run_retention_cycle
 from db.database import SessionLocal as async_session_maker
 from db.models import TimeEvent, EventType, Worker, WorkerType, Payment, PaymentStatus
 from db.security import decrypt_string
@@ -27,57 +29,45 @@ async def check_arbzg_pauses():
         workers = (await session.execute(stmt)).scalars().all()
         now = datetime.now(timezone.utc)
         for w in workers:
-            ev_stmt = select(TimeEvent).where(
-                TimeEvent.worker_id == w.id,
-                func.date(TimeEvent.timestamp) == today
-            ).order_by(TimeEvent.timestamp.asc())
-            events = (await session.execute(ev_stmt)).scalars().all()
-            if not events:
+            flags = await get_worker_arbzg_flags(session, worker_id=w.id, target_day=today, now=now)
+            if not flags:
                 continue
-            checkin_time = None
-            total_pause_m = 0
-            is_working = False
-            for e in events:
-                if e.event_type == EventType.CHECKIN:
-                    checkin_time = e.timestamp
-                    is_working = True
-                elif e.event_type == EventType.PAUSE_START:
-                    is_working = False
-                elif e.event_type == EventType.PAUSE_END:
-                    is_working = True
-                elif e.event_type == EventType.CHECKOUT:
-                    is_working = False
-            if is_working and checkin_time:
-                worked_hours = (now - checkin_time).total_seconds() / 3600
-                if worked_hours > 9.0 and total_pause_m < 45:
-                    try:
-                        tg_id = int(decrypt_string(w.telegram_id_enc))
-                        from bot.i18n.translations import t
-                        msg = f"KRITISCH: {t('arbzg_warning', w.language.value)}"
-                        await send_telegram_message(tg_id, msg, settings.BOT_TOKEN)
-                    except Exception:
-                        pass
-                    ch_stmt = select(Worker).where(Worker.company_id == w.company_id)
-                    chiefs = [
-                        worker
-                        for worker in (await session.execute(ch_stmt)).scalars().all()
-                        if can_view_admin_features(worker)
-                    ]
-                    w_name = decrypt_string(w.full_name_enc)
-                    for c in chiefs:
-                        try:
-                            c_tg = int(decrypt_string(c.telegram_id_enc))
-                            await send_telegram_message(c_tg, f"ArbZG Verletzung: {w_name} arbeitet >9h ohne 45m Pause!", settings.BOT_TOKEN)
-                        except Exception:
-                            pass
-                elif worked_hours > 6.0 and total_pause_m < 30:
-                    try:
-                        tg_id = int(decrypt_string(w.telegram_id_enc))
-                        from bot.i18n.translations import t
-                        msg = f"{t('arbzg_warning', w.language.value)}"
-                        await send_telegram_message(tg_id, msg, settings.BOT_TOKEN)
-                    except Exception:
-                        pass
+            try:
+                tg_id = int(decrypt_string(w.telegram_id_enc))
+                from bot.i18n.translations import t
+
+                severity = "KRITISCH: " if any(flag["severity"] == "critical" for flag in flags) else ""
+                msg = f"{severity}{t('arbzg_warning', w.language.value)}"
+                await send_telegram_message(tg_id, msg, settings.BOT_TOKEN)
+            except Exception:
+                pass
+
+            if not any(flag["severity"] == "critical" for flag in flags):
+                continue
+            ch_stmt = select(Worker).where(Worker.company_id == w.company_id)
+            chiefs = [
+                worker
+                for worker in (await session.execute(ch_stmt)).scalars().all()
+                if can_view_admin_features(worker)
+            ]
+            worker_name = decrypt_string(w.full_name_enc)
+            for chief in chiefs:
+                try:
+                    chief_tg = int(decrypt_string(chief.telegram_id_enc))
+                    await send_telegram_message(
+                        chief_tg,
+                        f"ArbZG Warnung: {worker_name} hat kritische Arbeitszeit-Flags.",
+                        settings.BOT_TOKEN,
+                    )
+                except Exception:
+                    pass
+
+
+async def run_retention_foundation():
+    logger.info("Executing retention foundation run...")
+    async with async_session_maker() as session:
+        report = await run_retention_cycle(session)
+        logger.info(f"Retention report: {report}")
 
 async def warn_unclosed_days_1800():
     logger.info("Executing 18:00 unclosed days check...")
@@ -260,5 +250,6 @@ def setup_scheduler():
     scheduler.add_job(alert_unclosed_days_2000, CronTrigger(hour=20, minute=0, timezone=BERLIN_TZ))
     scheduler.add_job(generate_weekly_report, CronTrigger(day_of_week='mon', hour=8, minute=0, timezone=BERLIN_TZ))
     scheduler.add_job(monitor_minijob_limits, CronTrigger(hour=19, minute=0, timezone=BERLIN_TZ))
+    scheduler.add_job(run_retention_foundation, CronTrigger(hour=3, minute=0, timezone=BERLIN_TZ))
     scheduler.start()
     logger.info("Scheduler started in Europe/Berlin timezone.")

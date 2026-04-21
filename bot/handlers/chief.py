@@ -22,7 +22,9 @@ from aiogram.types import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from access.legacy_policy import can_access_dashboard
+from access.legacy_policy import can_access_dashboard, can_manage_company_profile
+from api.services.audit_logger import log_audit_event, model_snapshot
+from api.services.legal_acceptance import record_company_onboarding_acceptance
 from bot.config import settings as bot_config
 from bot.i18n.translations import t
 from bot.keyboards.chief_kb import (
@@ -210,12 +212,7 @@ async def _unique_company_slug(session: AsyncSession, company_name: str) -> str:
 
 
 def _can_edit_company_profile(worker: Worker | None) -> bool:
-    return bool(
-        worker
-        and worker.is_active
-        and worker.can_view_dashboard
-        and worker.access_role == WorkerAccessRole.COMPANY_OWNER.value
-    )
+    return can_manage_company_profile(worker)
 
 
 async def _ensure_company_public_profile(
@@ -1591,6 +1588,7 @@ async def update_people_role(
         return
 
     previous_role = person.access_role
+    old_snapshot = model_snapshot(person, "access_role", "can_view_dashboard", "site_id")
     person.access_role = role
     person.can_view_dashboard = role in {
         WorkerAccessRole.OBJEKTMANAGER.value,
@@ -1599,6 +1597,16 @@ async def update_people_role(
     if previous_role == WorkerAccessRole.OBJEKTMANAGER.value and role == WorkerAccessRole.ACCOUNTANT.value:
         person.site_id = None
     session.add(person)
+    await log_audit_event(
+        session,
+        entity_type="worker",
+        entity_id=person.id,
+        action="worker_role_updated",
+        old_value=old_snapshot,
+        new_value=model_snapshot(person, "access_role", "can_view_dashboard", "site_id"),
+        performed_by_worker_id=current_worker.id if current_worker else None,
+        company_id=current_worker.company_id if current_worker else None,
+    )
     await session.commit()
     await session.refresh(person)
     await _send_people_edit_menu(callback.message, session, current_worker, person, locale, edit=True)
@@ -1632,10 +1640,21 @@ async def update_people_employment_type(
         await callback.answer()
         return
 
+    old_snapshot = model_snapshot(person, "employment_type", "employment_status")
     person.employment_type = employment_type
     if employment_type == EmploymentType.TRIAL_PERIOD.value and person.employment_status == EmploymentStatus.ACTIVE.value:
         person.employment_status = EmploymentStatus.TRIAL_ACTIVE.value
     session.add(person)
+    await log_audit_event(
+        session,
+        entity_type="worker",
+        entity_id=person.id,
+        action="worker_employment_type_updated",
+        old_value=old_snapshot,
+        new_value=model_snapshot(person, "employment_type", "employment_status"),
+        performed_by_worker_id=current_worker.id if current_worker else None,
+        company_id=current_worker.company_id if current_worker else None,
+    )
     await session.commit()
     await session.refresh(person)
     await _send_people_edit_menu(callback.message, session, current_worker, person, locale, edit=True)
@@ -1677,6 +1696,7 @@ async def update_people_employment_status(
         await callback.answer(t("people_self_owner_active", locale))
         return
 
+    old_snapshot = model_snapshot(person, "employment_status", "is_active", "ended_at")
     person.employment_status = employment_status
     person.is_active = employment_status in {
         EmploymentStatus.ACTIVE.value,
@@ -1688,6 +1708,16 @@ async def update_people_employment_status(
     elif not person.ended_at:
         person.ended_at = datetime.now(timezone.utc)
     session.add(person)
+    await log_audit_event(
+        session,
+        entity_type="worker",
+        entity_id=person.id,
+        action="worker_employment_status_updated",
+        old_value=old_snapshot,
+        new_value=model_snapshot(person, "employment_status", "is_active", "ended_at"),
+        performed_by_worker_id=current_worker.id if current_worker else None,
+        company_id=current_worker.company_id if current_worker else None,
+    )
     await session.commit()
     await session.refresh(person)
     await _send_people_edit_menu(callback.message, session, current_worker, person, locale, edit=True)
@@ -1721,18 +1751,30 @@ async def update_people_site_focus(
 
     site_token = callback.data.removeprefix("people_site_")
     if site_token == "none":
+        old_snapshot = model_snapshot(person, "site_id")
         person.site_id = None
     elif site_token.isdigit():
         site = await session.get(Site, int(site_token))
         if not site or site.company_id != current_worker.company_id or not site.is_active:
             await callback.answer(t("site_not_found", locale))
             return
+        old_snapshot = model_snapshot(person, "site_id")
         person.site_id = site.id
     else:
         await callback.answer()
         return
 
     session.add(person)
+    await log_audit_event(
+        session,
+        entity_type="worker",
+        entity_id=person.id,
+        action="worker_site_focus_updated",
+        old_value=old_snapshot,
+        new_value=model_snapshot(person, "site_id"),
+        performed_by_worker_id=current_worker.id if current_worker else None,
+        company_id=current_worker.company_id if current_worker else None,
+    )
     await session.commit()
     await session.refresh(person)
     await _send_people_edit_menu(callback.message, session, current_worker, person, locale, edit=True)
@@ -1944,6 +1986,7 @@ async def process_owner_alpha_company_email(
         created_by=None,
     )
     session.add(owner)
+    await session.flush()
 
     profile_slug = await _unique_company_slug(session, company_name)
     public_profile = CompanyPublicProfile(
@@ -1957,6 +2000,11 @@ async def process_owner_alpha_company_email(
         is_active=True,
     )
     session.add(public_profile)
+    await record_company_onboarding_acceptance(
+        session,
+        actor_worker_id=owner.id,
+        company_id=company.id,
+    )
     await session.commit()
 
     if token:
@@ -2051,6 +2099,12 @@ async def process_company_email(message: Message, state: FSMContext, session: As
         created_by=None,
     )
     session.add(chief_worker)
+    await session.flush()
+    await record_company_onboarding_acceptance(
+        session,
+        actor_worker_id=chief_worker.id,
+        company_id=company.id,
+    )
     await session.commit()
 
     await state.update_data(company_id=company.id)

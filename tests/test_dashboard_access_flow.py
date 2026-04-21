@@ -78,7 +78,7 @@ from api.services.dashboard_access import (
 )
 from bot.handlers.dashboard import cmd_dashboard
 from db.calendar_service import create_calendar_event
-from db.dashboard_tokens import dashboard_token_key
+from db.dashboard_tokens import build_dashboard_token_payload, dashboard_token_key
 from db.models import (
     Base,
     BillingType,
@@ -107,6 +107,10 @@ class FakeRedis:
 
     async def get(self, key: str) -> str | None:
         return self.values.get(key)
+
+
+def dashboard_token_payload(worker: Worker) -> str:
+    return build_dashboard_token_payload(worker_id=worker.id, company_id=worker.company_id)
 
 
 def signed_init_data(
@@ -226,7 +230,7 @@ def test_get_dashboard_worker_valid_token():
         await session.commit()
 
         token = "valid-token"
-        redis_client = FakeRedis({dashboard_token_key(token): str(worker.id)})
+        redis_client = FakeRedis({dashboard_token_key(token): dashboard_token_payload(worker)})
 
         result = await get_dashboard_worker(token, session, redis_client)
 
@@ -258,7 +262,7 @@ def test_get_dashboard_worker_inactive_worker():
         await session.commit()
 
         token = "inactive-token"
-        redis_client = FakeRedis({dashboard_token_key(token): str(worker.id)})
+        redis_client = FakeRedis({dashboard_token_key(token): dashboard_token_payload(worker)})
 
         with pytest.raises(DashboardAccessError, match="dashboard_access_denied"):
             await get_dashboard_worker(token, session, redis_client)
@@ -278,7 +282,7 @@ def test_get_dashboard_worker_dashboard_disabled():
         await session.commit()
 
         token = "disabled-token"
-        redis_client = FakeRedis({dashboard_token_key(token): str(worker.id)})
+        redis_client = FakeRedis({dashboard_token_key(token): dashboard_token_payload(worker)})
 
         with pytest.raises(DashboardAccessError, match="dashboard_access_denied"):
             await get_dashboard_worker(token, session, redis_client)
@@ -299,7 +303,7 @@ def test_get_dashboard_worker_allows_time_tracking_disabled_admin():
         await session.commit()
 
         token = "tracking-disabled-admin-token"
-        redis_client = FakeRedis({dashboard_token_key(token): str(worker.id)})
+        redis_client = FakeRedis({dashboard_token_key(token): dashboard_token_payload(worker)})
 
         result = await get_dashboard_worker(token, session, redis_client)
 
@@ -368,7 +372,7 @@ def test_dashboard_miniapp_bootstrap_denies_non_dashboard_user():
         with pytest.raises(HTTPException) as exc_info:
             await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
 
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.status_code == 403
 
     run_db_test(run_test)
 
@@ -918,7 +922,7 @@ def test_dashboard_miniapp_bootstrap_denies_invalid_init_data():
         with pytest.raises(HTTPException) as exc_info:
             await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
 
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.status_code == 403
 
     run_db_test(run_test)
 
@@ -989,7 +993,7 @@ def test_dashboard_miniapp_denies_platform_superadmin_on_dedicated_bot(monkeypat
         with pytest.raises(HTTPException) as exc_info:
             await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
 
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.status_code == 403
 
     run_db_test(run_test)
 
@@ -1015,7 +1019,7 @@ def test_worker_home_denies_platform_personal_context_on_dedicated_bot(monkeypat
                 db=session,
             )
 
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.status_code == 403
 
     run_db_test(run_test)
 
@@ -1107,7 +1111,7 @@ def test_dashboard_miniapp_bootstrap_denies_unconfigured_sek_admin():
         with pytest.raises(HTTPException) as exc_info:
             await dashboard_router.dashboard_miniapp_bootstrap(payload=payload, db=session)
 
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.status_code == 403
 
     run_db_test(run_test)
 
@@ -1231,14 +1235,14 @@ def test_dashboard_route_preserves_legacy_token_on_version_redirect():
     )
 
 
-def test_dashboard_data_route_returns_404_for_invalid_token(monkeypatch):
+def test_dashboard_data_route_returns_403_for_invalid_token(monkeypatch):
     async def run_test(session):
         monkeypatch.setattr(dashboard_router, "redis_client", FakeRedis({}))
 
         with pytest.raises(HTTPException) as exc_info:
             await dashboard_router.dashboard_data(token="invalid-token", db=session)
 
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.status_code == 403
 
     run_db_test(run_test)
 
@@ -1266,7 +1270,7 @@ def test_dashboard_data_excludes_tracking_disabled_workers(monkeypatch):
         monkeypatch.setattr(
             dashboard_router,
             "redis_client",
-            FakeRedis({dashboard_token_key(token): str(admin.id)}),
+            FakeRedis({dashboard_token_key(token): dashboard_token_payload(admin)}),
         )
         monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
 

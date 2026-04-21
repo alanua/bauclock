@@ -6,7 +6,7 @@ from typing import Sequence
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from access.legacy_policy import can_view_admin_features
+from access.legacy_policy import can_manage_calendar, dashboard_access_role, visible_site_id
 from db.models import CalendarEvent, CalendarEventType, Site, Worker
 
 
@@ -27,6 +27,32 @@ def _validate_date_range(date_from: date, date_to: date) -> None:
         raise ValueError("calendar_event_date_range_invalid")
 
 
+def _worker_visible_to_manager(manager_worker: Worker, scoped_worker: Worker | None) -> bool:
+    if not scoped_worker or scoped_worker.company_id != manager_worker.company_id:
+        return False
+    access_role = dashboard_access_role(manager_worker)
+    if access_role == "company_owner":
+        return True
+    if access_role == "objektmanager":
+        site_id = visible_site_id(manager_worker)
+        if site_id is None:
+            return scoped_worker.id == manager_worker.id
+        return scoped_worker.site_id == site_id
+    return False
+
+
+def _site_visible_to_manager(manager_worker: Worker, scoped_site: Site | None) -> bool:
+    if not scoped_site or scoped_site.company_id != manager_worker.company_id:
+        return False
+    access_role = dashboard_access_role(manager_worker)
+    if access_role == "company_owner":
+        return True
+    if access_role == "objektmanager":
+        site_id = visible_site_id(manager_worker)
+        return site_id is not None and scoped_site.id == site_id
+    return False
+
+
 async def create_calendar_event(
     db: AsyncSession,
     *,
@@ -38,7 +64,7 @@ async def create_calendar_event(
     site_id: int | None = None,
     comment: str | None = None,
 ) -> CalendarEvent:
-    if not can_view_admin_features(manager_worker):
+    if not can_manage_calendar(manager_worker):
         raise CalendarAccessError("calendar_event_create_denied")
     if worker_id is not None and site_id is not None:
         raise ValueError("calendar_event_scope_ambiguous")
@@ -47,13 +73,16 @@ async def create_calendar_event(
 
     if worker_id is not None:
         worker = await db.get(Worker, worker_id)
-        if not worker or worker.company_id != manager_worker.company_id:
+        if not _worker_visible_to_manager(manager_worker, worker):
             raise CalendarAccessError("calendar_event_worker_scope_denied")
 
     if site_id is not None:
         site = await db.get(Site, site_id)
-        if not site or site.company_id != manager_worker.company_id:
+        if not _site_visible_to_manager(manager_worker, site):
             raise CalendarAccessError("calendar_event_site_scope_denied")
+
+    if dashboard_access_role(manager_worker) == "objektmanager" and worker_id is None and site_id is None:
+        raise CalendarAccessError("calendar_event_company_wide_denied")
 
     calendar_event = CalendarEvent(
         company_id=manager_worker.company_id,
@@ -78,14 +107,24 @@ async def list_company_calendar_events(
     manager_worker: Worker,
     active_only: bool = True,
 ) -> Sequence[CalendarEvent]:
-    if not can_view_admin_features(manager_worker):
+    if not can_manage_calendar(manager_worker):
         raise CalendarAccessError("company_calendar_events_denied")
 
     stmt = select(CalendarEvent).where(CalendarEvent.company_id == manager_worker.company_id)
     if active_only:
         stmt = stmt.where(CalendarEvent.is_active.is_(True))
     result = await db.execute(stmt.order_by(CalendarEvent.date_from.desc(), CalendarEvent.id.desc()))
-    return result.scalars().all()
+    events = result.scalars().all()
+    if dashboard_access_role(manager_worker) != "objektmanager":
+        return events
+    return [
+        event
+        for event in events
+        if (
+            (event.worker_id is not None and _worker_visible_to_manager(manager_worker, await db.get(Worker, event.worker_id)))
+            or (event.site_id is not None and _site_visible_to_manager(manager_worker, await db.get(Site, event.site_id)))
+        )
+    ]
 
 
 async def list_worker_calendar_events(
@@ -129,12 +168,17 @@ async def deactivate_calendar_event(
     event_id: int,
     manager_worker: Worker,
 ) -> CalendarEvent:
-    if not can_view_admin_features(manager_worker):
+    if not can_manage_calendar(manager_worker):
         raise CalendarAccessError("calendar_event_deactivate_denied")
 
     calendar_event = await db.get(CalendarEvent, event_id)
     if not calendar_event or calendar_event.company_id != manager_worker.company_id:
         raise CalendarAccessError("calendar_event_not_found")
+    if dashboard_access_role(manager_worker) == "objektmanager":
+        worker = await db.get(Worker, calendar_event.worker_id) if calendar_event.worker_id else None
+        site = await db.get(Site, calendar_event.site_id) if calendar_event.site_id else None
+        if not _worker_visible_to_manager(manager_worker, worker) and not _site_visible_to_manager(manager_worker, site):
+            raise CalendarAccessError("calendar_event_scope_denied")
 
     calendar_event.is_active = False
     calendar_event.updated_at = _utcnow()

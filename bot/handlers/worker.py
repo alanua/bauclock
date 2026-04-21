@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from api.services.legal_acceptance import record_worker_onboarding_acknowledgements
 from db.models import (
     Company,
     EmploymentStatus,
@@ -397,6 +398,13 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
     )
     
     session.add(new_worker)
+    await session.flush()
+    await record_worker_onboarding_acknowledgements(
+        session,
+        worker_id=new_worker.id,
+        company_id=new_worker.company_id,
+        gps_notice_enabled=True,
+    )
     await session.commit()
     
     # Invalidate token

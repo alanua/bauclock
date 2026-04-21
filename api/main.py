@@ -2,7 +2,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from api.routers import admin, dashboard, public
+from api.routers import admin, dashboard, dashboard_router, public
 from api.logger import logger
 
 app = FastAPI(
@@ -13,6 +13,7 @@ app = FastAPI(
 
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(public.router)
+app.include_router(dashboard_router.router)
 app.include_router(dashboard.router)
 
 app.mount("/static", StaticFiles(directory="api/static"), name="static")

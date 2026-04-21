@@ -6,7 +6,11 @@ from typing import Sequence
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from access.legacy_policy import can_view_admin_features
+from access.legacy_policy import (
+    can_view_admin_features,
+    dashboard_access_role,
+    visible_site_id,
+)
 from db.models import Request, RequestStatus, Worker
 
 
@@ -23,6 +27,39 @@ def _normalize_text(text: str) -> str:
     if not normalized:
         raise ValueError("request_text_required")
     return normalized
+
+
+def _worker_visible_to_manager(manager_worker: Worker, scoped_worker: Worker | None) -> bool:
+    if not scoped_worker or scoped_worker.company_id != manager_worker.company_id:
+        return False
+
+    access_role = dashboard_access_role(manager_worker)
+    if access_role in {"company_owner", "accountant"}:
+        return True
+    if access_role == "objektmanager":
+        site_id = visible_site_id(manager_worker)
+        if site_id is None:
+            return scoped_worker.id == manager_worker.id
+        return scoped_worker.site_id == site_id
+    return scoped_worker.id == manager_worker.id
+
+
+async def _request_visible_to_manager(
+    db: AsyncSession,
+    *,
+    manager_worker: Worker,
+    request: Request,
+) -> bool:
+    if request.company_id != manager_worker.company_id:
+        return False
+
+    access_role = dashboard_access_role(manager_worker)
+    if access_role in {"company_owner", "accountant"}:
+        return True
+
+    creator = await db.get(Worker, request.created_by_worker_id) if request.created_by_worker_id else None
+    target = await db.get(Worker, request.target_worker_id) if request.target_worker_id else None
+    return _worker_visible_to_manager(manager_worker, creator) or _worker_visible_to_manager(manager_worker, target)
 
 
 async def create_request(
@@ -47,6 +84,8 @@ async def create_request(
         target_worker = await db.get(Worker, target_worker_id)
         if not target_worker or target_worker.company_id != company_id:
             raise RequestAccessError("target_worker_company_mismatch")
+        if creator_worker and can_view_admin_features(creator_worker) and not _worker_visible_to_manager(creator_worker, target_worker):
+            raise RequestAccessError("target_worker_scope_denied")
 
     request = Request(
         company_id=company_id,
@@ -71,7 +110,12 @@ async def list_company_requests(db: AsyncSession, *, manager_worker: Worker) -> 
         .where(Request.company_id == manager_worker.company_id)
         .order_by(Request.created_at.desc(), Request.id.desc())
     )
-    return result.scalars().all()
+    requests = result.scalars().all()
+    visible_requests = []
+    for request in requests:
+        if await _request_visible_to_manager(db, manager_worker=manager_worker, request=request):
+            visible_requests.append(request)
+    return visible_requests
 
 
 async def list_worker_requests(db: AsyncSession, *, worker: Worker) -> Sequence[Request]:
@@ -120,6 +164,8 @@ async def _set_request_status(
     request = await db.get(Request, request_id)
     if not request or request.company_id != manager_worker.company_id:
         raise RequestAccessError("request_not_found")
+    if not await _request_visible_to_manager(db, manager_worker=manager_worker, request=request):
+        raise RequestAccessError("request_scope_denied")
 
     now = _utcnow()
     request.status = status.value
