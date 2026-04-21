@@ -19,6 +19,13 @@ WORKER_DOCUMENT_VERSIONS = {
 }
 
 
+def _require_text(value: str, *, error_code: str) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise ValueError(error_code)
+    return normalized
+
+
 async def record_legal_acceptance(
     db: AsyncSession,
     *,
@@ -29,13 +36,20 @@ async def record_legal_acceptance(
     document_version: str,
     action_type: str,
 ) -> LegalAcceptanceLog:
+    normalized_actor_type = _require_text(actor_type, error_code="actor_type_required")
+    normalized_document_type = _require_text(document_type, error_code="document_type_required")
+    normalized_document_version = _require_text(document_version, error_code="document_version_required")
+    normalized_action_type = _require_text(action_type, error_code="action_type_required")
+    if normalized_action_type not in {"accepted", "acknowledged"}:
+        raise ValueError("invalid_action_type")
+
     row = LegalAcceptanceLog(
-        actor_type=actor_type,
+        actor_type=normalized_actor_type,
         actor_id=actor_id,
         company_id=company_id,
-        document_type=document_type,
-        document_version=document_version,
-        action_type=action_type,
+        document_type=normalized_document_type,
+        document_version=normalized_document_version,
+        action_type=normalized_action_type,
     )
     db.add(row)
     await db.flush()

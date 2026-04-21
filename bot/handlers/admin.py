@@ -13,6 +13,7 @@ from access.legacy_policy import (
     can_view_admin_features,
 )
 from api.services.audit_logger import log_audit_event, model_snapshot
+from api.services.audited_changes import apply_audited_worker_update
 from bot.keyboards.chief_kb import get_cancel_kb
 from db.models import Payment, Worker
 
@@ -200,18 +201,13 @@ async def process_new_rate(
     data = await state.get_data()
     target = await session.get(Worker, data["edit_worker_id"])
     if target and target.company_id == current_worker.company_id:
-        old_snapshot = model_snapshot(target, "hourly_rate")
-        target.hourly_rate = new_rate
-        session.add(target)
-        await log_audit_event(
+        await apply_audited_worker_update(
             session,
-            entity_type="worker",
-            entity_id=target.id,
+            worker=target,
             action="worker_hourly_rate_updated",
-            old_value=old_snapshot,
-            new_value=model_snapshot(target, "hourly_rate"),
             performed_by_worker_id=current_worker.id,
             company_id=current_worker.company_id,
+            hourly_rate=new_rate,
         )
         await session.commit()
         await message.answer(

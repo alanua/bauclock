@@ -7,7 +7,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import settings
-from db.models import AuditLog, RetentionHold, TimeEvent
+from api.services.retention_holds import active_retention_hold_entity_ids
+from db.models import AuditLog, TimeEvent
 
 
 @dataclass
@@ -40,14 +41,11 @@ async def _held_entity_ids(
     entity_type: str,
     now: datetime,
 ) -> set[int]:
-    result = await db.execute(
-        select(RetentionHold.entity_id).where(
-            RetentionHold.entity_type == entity_type,
-            RetentionHold.is_active.is_(True),
-            (RetentionHold.expires_at.is_(None) | (RetentionHold.expires_at > now)),
-        )
+    return await active_retention_hold_entity_ids(
+        db,
+        entity_type=entity_type,
+        now=now,
     )
-    return {int(entity_id) for entity_id in result.scalars().all()}
 
 
 async def _report_for_model(

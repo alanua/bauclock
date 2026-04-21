@@ -274,6 +274,34 @@ def test_dashboard_routes_reject_worker_without_dashboard_rights(monkeypatch, ro
 
 
 @pytest.mark.parametrize("route_name", ["shell", "data"])
+def test_dashboard_routes_reject_inactive_worker(monkeypatch, route_name):
+    async def run_test(session):
+        company = await seed_company(session, f"{route_name}-inactive")
+        worker = await seed_worker(
+            session,
+            company.id,
+            f"{route_name}-inactive",
+            is_active=False,
+        )
+        await session.commit()
+
+        token = f"{route_name}-inactive-token"
+        redis_values = {
+            dashboard_token_key(token): build_dashboard_token_payload(
+                worker_id=worker.id,
+                company_id=worker.company_id,
+            )
+        }
+
+        if route_name == "shell":
+            await _assert_shell_denied(monkeypatch, session, token=token, redis_values=redis_values)
+        else:
+            await _assert_data_denied(monkeypatch, session, token=token, redis_values=redis_values)
+
+    run_db_test(run_test)
+
+
+@pytest.mark.parametrize("route_name", ["shell", "data"])
 def test_dashboard_routes_reject_company_scope_mismatch(monkeypatch, route_name):
     async def run_test(session):
         company = await seed_company(session, f"{route_name}-scope")

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from access.legacy_policy import can_access_dashboard, can_manage_company_profile
 from api.services.audit_logger import log_audit_event, model_snapshot
+from api.services.audited_changes import apply_audited_worker_update
 from api.services.legal_acceptance import record_company_onboarding_acceptance
 from bot.config import settings as bot_config
 from bot.i18n.translations import t
@@ -1588,24 +1589,22 @@ async def update_people_role(
         return
 
     previous_role = person.access_role
-    old_snapshot = model_snapshot(person, "access_role", "can_view_dashboard", "site_id")
-    person.access_role = role
-    person.can_view_dashboard = role in {
+    can_view_dashboard = role in {
         WorkerAccessRole.OBJEKTMANAGER.value,
         WorkerAccessRole.ACCOUNTANT.value,
     }
+    site_id = person.site_id
     if previous_role == WorkerAccessRole.OBJEKTMANAGER.value and role == WorkerAccessRole.ACCOUNTANT.value:
-        person.site_id = None
-    session.add(person)
-    await log_audit_event(
+        site_id = None
+    await apply_audited_worker_update(
         session,
-        entity_type="worker",
-        entity_id=person.id,
+        worker=person,
         action="worker_role_updated",
-        old_value=old_snapshot,
-        new_value=model_snapshot(person, "access_role", "can_view_dashboard", "site_id"),
         performed_by_worker_id=current_worker.id if current_worker else None,
         company_id=current_worker.company_id if current_worker else None,
+        access_role=role,
+        can_view_dashboard=can_view_dashboard,
+        site_id=site_id,
     )
     await session.commit()
     await session.refresh(person)

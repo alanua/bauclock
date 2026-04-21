@@ -29,15 +29,27 @@ import api.routers.admin as admin_router
 import api.routers.dashboard as dashboard_router
 from api.config import settings
 from api.services.arbzg_policy import get_worker_arbzg_flags
+from api.services.audited_changes import (
+    apply_audited_payment_update,
+    apply_audited_worker_update,
+    upsert_monthly_adjustment,
+)
 from api.services.dashboard_access import DashboardAccessError, get_dashboard_worker
 from api.services.legal_acceptance import (
     get_legal_acceptance_overview,
     record_company_onboarding_acceptance,
+    record_legal_acceptance,
     record_worker_onboarding_acknowledgements,
+)
+from api.services.retention_holds import (
+    expire_retention_holds,
+    is_entity_on_retention_hold,
+    place_retention_hold,
+    release_retention_holds,
 )
 from api.services.retention import run_retention_cycle
 from db.dashboard_tokens import build_dashboard_token_payload, dashboard_token_key
-from db.models import AuditLog, Base, BillingType, Company, EventType, Payment, PaymentStatus, RetentionHold, Site, TimeEvent, Worker, WorkerAccessRole, WorkerType
+from db.models import AuditLog, Base, BillingType, Company, EventType, LegalAcceptanceLog, MonthlyAdjustment, Payment, PaymentStatus, RetentionHold, Site, TimeEvent, Worker, WorkerAccessRole, WorkerType
 from db.time_corrections import apply_manual_time_correction
 
 
@@ -143,6 +155,195 @@ def test_dashboard_token_rejects_company_mismatch():
 
         with pytest.raises(DashboardAccessError, match="dashboard_scope_denied"):
             await get_dashboard_worker(token, session, redis_client)
+
+    run_db_test(run_test)
+
+
+def test_worker_permission_and_rate_updates_create_audit_logs():
+    async def run_test(session):
+        company = await seed_company(session, "worker-audit")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "worker-audit-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "worker-audit-target")
+        worker.hourly_rate = 18.5
+        worker.contract_hours_week = 35
+        await session.commit()
+
+        await apply_audited_worker_update(
+            session,
+            worker=worker,
+            action="worker_role_updated",
+            performed_by_worker_id=owner.id,
+            company_id=company.id,
+            access_role=WorkerAccessRole.ACCOUNTANT.value,
+            can_view_dashboard=True,
+        )
+        await apply_audited_worker_update(
+            session,
+            worker=worker,
+            action="worker_hourly_rate_updated",
+            performed_by_worker_id=owner.id,
+            company_id=company.id,
+            hourly_rate=24.0,
+        )
+        await apply_audited_worker_update(
+            session,
+            worker=worker,
+            action="worker_contract_hours_week_updated",
+            performed_by_worker_id=owner.id,
+            company_id=company.id,
+            contract_hours_week=40,
+        )
+        await session.commit()
+
+        audit_logs = (
+            await session.execute(
+                select(AuditLog)
+                .where(
+                    AuditLog.entity_type == "worker",
+                    AuditLog.entity_id == worker.id,
+                )
+                .order_by(AuditLog.id.asc())
+            )
+        ).scalars().all()
+
+        assert [log.action for log in audit_logs] == [
+            "worker_role_updated",
+            "worker_hourly_rate_updated",
+            "worker_contract_hours_week_updated",
+        ]
+        assert audit_logs[0].old_value == {
+            "access_role": WorkerAccessRole.WORKER.value,
+            "can_view_dashboard": False,
+        }
+        assert audit_logs[0].new_value == {
+            "access_role": WorkerAccessRole.ACCOUNTANT.value,
+            "can_view_dashboard": True,
+        }
+        assert audit_logs[1].old_value == {"hourly_rate": 18.5}
+        assert audit_logs[1].new_value == {"hourly_rate": 24.0}
+        assert audit_logs[2].old_value == {"contract_hours_week": 35}
+        assert audit_logs[2].new_value == {"contract_hours_week": 40}
+
+    run_db_test(run_test)
+
+
+def test_payment_and_monthly_adjustment_mutations_create_audit_logs():
+    async def run_test(session):
+        company = await seed_company(session, "payment-audit")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "payment-audit-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "payment-audit-worker")
+        payment = Payment(
+            worker_id=worker.id,
+            period_start=datetime(2026, 4, 1, tzinfo=timezone.utc),
+            period_end=datetime(2026, 4, 30, tzinfo=timezone.utc),
+            hours_paid=8,
+            amount_paid=160,
+            status=PaymentStatus.PENDING,
+            payment_type="CONTRACT",
+        )
+        session.add(payment)
+        await session.flush()
+
+        await apply_audited_payment_update(
+            session,
+            payment=payment,
+            performed_by_worker_id=owner.id,
+            company_id=company.id,
+            status=PaymentStatus.CONFIRMED,
+            confirmed_at=datetime(2026, 5, 1, tzinfo=timezone.utc),
+        )
+        await apply_audited_payment_update(
+            session,
+            payment=payment,
+            performed_by_worker_id=owner.id,
+            company_id=company.id,
+            amount_paid=175,
+            period_end=datetime(2026, 5, 2, tzinfo=timezone.utc),
+        )
+
+        first_month = date(2026, 4, 1)
+        adjustment = await upsert_monthly_adjustment(
+            session,
+            worker_id=worker.id,
+            month=first_month,
+            adjustment_minutes=30,
+            reason="Night shift carry-over",
+            performed_by_worker_id=owner.id,
+            company_id=company.id,
+        )
+        updated_adjustment = await upsert_monthly_adjustment(
+            session,
+            worker_id=worker.id,
+            month=first_month,
+            adjustment_minutes=45,
+            reason="Approved correction",
+            performed_by_worker_id=owner.id,
+            company_id=company.id,
+        )
+        await session.commit()
+
+        payment_logs = (
+            await session.execute(
+                select(AuditLog)
+                .where(
+                    AuditLog.entity_type == "payment",
+                    AuditLog.entity_id == payment.id,
+                )
+                .order_by(AuditLog.id.asc())
+            )
+        ).scalars().all()
+        adjustment_logs = (
+            await session.execute(
+                select(AuditLog)
+                .where(
+                    AuditLog.entity_type == "monthly_adjustment",
+                    AuditLog.entity_id == adjustment.id,
+                )
+                .order_by(AuditLog.id.asc())
+            )
+        ).scalars().all()
+        stored_adjustment = await session.get(MonthlyAdjustment, adjustment.id)
+
+        assert [log.action for log in payment_logs] == [
+            "payment_status_updated",
+            "payment_amount_date_updated",
+        ]
+        assert payment_logs[0].old_value["status"] == PaymentStatus.PENDING.value
+        assert payment_logs[0].new_value["status"] == PaymentStatus.CONFIRMED.value
+        assert payment_logs[1].old_value["amount_paid"] == 160
+        assert payment_logs[1].new_value["amount_paid"] == 175
+        assert payment_logs[1].old_value["period_end"] == "2026-04-30T00:00:00+00:00"
+        assert payment_logs[1].new_value["period_end"] == "2026-05-02T00:00:00+00:00"
+
+        assert adjustment.id == updated_adjustment.id
+        assert stored_adjustment.adjustment_minutes == 45
+        assert stored_adjustment.reason == "Approved correction"
+        assert [log.action for log in adjustment_logs] == [
+            "monthly_adjustment_created",
+            "monthly_adjustment_updated",
+        ]
+        assert adjustment_logs[1].old_value == {
+            "adjustment_minutes": 30,
+            "reason": "Night shift carry-over",
+        }
+        assert adjustment_logs[1].new_value == {
+            "adjustment_minutes": 45,
+            "reason": "Approved correction",
+        }
 
     run_db_test(run_test)
 
@@ -320,6 +521,136 @@ def test_legal_acceptance_overview_tracks_company_and_worker_evidence():
 
         assert overview["company_documents_complete"] is True
         assert overview["worker_notice_completion"] == {"completed": 1, "total": 1}
+
+    run_db_test(run_test)
+
+
+def test_legal_acceptance_events_store_versions_and_actions():
+    async def run_test(session):
+        company = await seed_company(session, "legal-events")
+        actor = await seed_worker(session, company.id, "legal-events-worker")
+
+        await record_company_onboarding_acceptance(
+            session,
+            actor_worker_id=actor.id,
+            company_id=company.id,
+        )
+        await record_worker_onboarding_acknowledgements(
+            session,
+            worker_id=actor.id,
+            company_id=company.id,
+            gps_notice_enabled=True,
+        )
+        await session.commit()
+
+        logs = (
+            await session.execute(
+                select(LegalAcceptanceLog)
+                .where(LegalAcceptanceLog.company_id == company.id)
+                .order_by(LegalAcceptanceLog.id.asc())
+            )
+        ).scalars().all()
+
+        assert len(logs) == 6
+        assert {log.action_type for log in logs if log.document_type in {"saas_terms", "avv_dpa"}} == {"accepted"}
+        assert {
+            log.action_type
+            for log in logs
+            if log.document_type in {"privacy_notice", "time_tracking_notice", "gps_site_presence_notice"}
+        } == {"acknowledged"}
+        assert all(log.document_version for log in logs)
+
+    run_db_test(run_test)
+
+
+def test_legal_acceptance_requires_document_version():
+    async def run_test(session):
+        company = await seed_company(session, "legal-version")
+        actor = await seed_worker(session, company.id, "legal-version-worker")
+
+        with pytest.raises(ValueError, match="document_version_required"):
+            await record_legal_acceptance(
+                session,
+                actor_type="worker",
+                actor_id=actor.id,
+                company_id=company.id,
+                document_type="privacy_notice",
+                document_version=" ",
+                action_type="acknowledged",
+            )
+
+    run_db_test(run_test)
+
+
+def test_retention_hold_helpers_support_active_release_and_expiry():
+    async def run_test(session):
+        company = await seed_company(session, "hold-service")
+        actor = await seed_worker(
+            session,
+            company.id,
+            "hold-service-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "hold-service-worker")
+
+        expired_hold = await place_retention_hold(
+            session,
+            entity_type="time_event",
+            entity_id=worker.id,
+            hold_reason="Expired dispute review",
+            hold_type="dispute_hold",
+            company_id=company.id,
+            held_by_worker_id=actor.id,
+            hold_until=datetime(2026, 4, 1, tzinfo=timezone.utc),
+        )
+        active_hold = await place_retention_hold(
+            session,
+            entity_type="time_event",
+            entity_id=worker.id,
+            hold_reason="Open audit review",
+            hold_type="audit_hold",
+            company_id=company.id,
+            held_by_worker_id=actor.id,
+            hold_until=datetime(2026, 5, 1, tzinfo=timezone.utc),
+        )
+        await session.commit()
+
+        expired_count = await expire_retention_holds(
+            session,
+            now=datetime(2026, 4, 21, tzinfo=timezone.utc),
+        )
+        assert expired_count == 1
+        assert await is_entity_on_retention_hold(
+            session,
+            entity_type="time_event",
+            entity_id=worker.id,
+            now=datetime(2026, 4, 21, tzinfo=timezone.utc),
+        ) is True
+
+        released_count = await release_retention_holds(
+            session,
+            entity_type="time_event",
+            entity_id=worker.id,
+            hold_type="audit_hold",
+        )
+        await session.commit()
+
+        expired_hold_row = await session.get(RetentionHold, expired_hold.id)
+        active_hold_row = await session.get(RetentionHold, active_hold.id)
+        assert released_count == 1
+        assert expired_hold_row.is_active is False
+        assert active_hold_row.is_active is False
+        assert active_hold_row.hold_reason == "Open audit review"
+        assert active_hold_row.held_by_worker_id == actor.id
+        assert active_hold_row.hold_until.isoformat().startswith("2026-05-01T00:00:00")
+        assert await is_entity_on_retention_hold(
+            session,
+            entity_type="time_event",
+            entity_id=worker.id,
+            now=datetime(2026, 4, 21, tzinfo=timezone.utc),
+        ) is False
 
     run_db_test(run_test)
 
