@@ -28,7 +28,7 @@ def install_import_stubs() -> None:
 install_import_stubs()
 
 import api.routers.dashboard as dashboard_router
-from db.dashboard_tokens import dashboard_token_key
+from db.dashboard_tokens import build_dashboard_token_payload, dashboard_token_key
 from db.models import Base, BillingType, Company, RequestStatus, Worker, WorkerType
 from db.request_service import create_request
 
@@ -92,9 +92,16 @@ async def seed_worker(
     return worker
 
 
-def dashboard_token_for(worker_id: int) -> tuple[str, FakeRedis]:
-    token = f"dashboard-token-{worker_id}"
-    redis_client = FakeRedis({dashboard_token_key(token): str(worker_id)})
+def dashboard_token_for(worker: Worker) -> tuple[str, FakeRedis]:
+    token = f"dashboard-token-{worker.id}"
+    redis_client = FakeRedis(
+        {
+            dashboard_token_key(token): build_dashboard_token_payload(
+                worker_id=worker.id,
+                company_id=worker.company_id,
+            )
+        }
+    )
     return token, redis_client
 
 
@@ -114,7 +121,7 @@ def test_dashboard_capable_user_can_fetch_company_requests(monkeypatch):
             text="Problem with equipment",
         )
 
-        token, redis_client = dashboard_token_for(manager.id)
+        token, redis_client = dashboard_token_for(manager)
         monkeypatch.setattr(dashboard_router, "redis_client", redis_client)
         monkeypatch.setattr(dashboard_router, "decrypt_string", lambda value: value)
 
@@ -133,13 +140,13 @@ def test_non_dashboard_user_is_denied_company_requests(monkeypatch):
         company = await seed_company(session, "denied")
         worker = await seed_worker(session, company.id, "worker", can_view_dashboard=False)
 
-        token, redis_client = dashboard_token_for(worker.id)
+        token, redis_client = dashboard_token_for(worker)
         monkeypatch.setattr(dashboard_router, "redis_client", redis_client)
 
         with pytest.raises(HTTPException) as exc_info:
             await dashboard_router.dashboard_requests(token=token, db=session)
 
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.status_code == 403
 
     run_db_test(run_test)
 
@@ -160,7 +167,7 @@ def test_resolve_action_updates_status(monkeypatch):
             text="Need review",
         )
 
-        token, redis_client = dashboard_token_for(manager.id)
+        token, redis_client = dashboard_token_for(manager)
         monkeypatch.setattr(dashboard_router, "redis_client", redis_client)
 
         response = await dashboard_router.dashboard_request_resolve(
@@ -193,7 +200,7 @@ def test_reject_action_updates_status(monkeypatch):
             text="Wrong hours",
         )
 
-        token, redis_client = dashboard_token_for(manager.id)
+        token, redis_client = dashboard_token_for(manager)
         monkeypatch.setattr(dashboard_router, "redis_client", redis_client)
 
         response = await dashboard_router.dashboard_request_reject(

@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from access.legacy_policy import can_access_dashboard, legacy_dashboard_role
 from api.services.telegram_init_data import TelegramInitDataError, validate_telegram_init_data
-from db.dashboard_tokens import dashboard_token_key
+from db.dashboard_tokens import (
+    dashboard_token_is_expired,
+    dashboard_token_key,
+    parse_dashboard_token_payload,
+)
 from db.models import (
     BillingType,
     Company,
@@ -170,16 +174,22 @@ async def get_dashboard_worker(
     if not normalized_token:
         raise DashboardAccessError("missing_dashboard_token")
 
-    worker_id = await redis_client.get(dashboard_token_key(normalized_token))
-    if not worker_id:
+    token_payload_raw = await redis_client.get(dashboard_token_key(normalized_token))
+    if not token_payload_raw:
         raise DashboardAccessError("invalid_dashboard_token")
 
     try:
-        worker_id_int = int(worker_id)
+        if dashboard_token_is_expired(token_payload_raw):
+            raise DashboardAccessError("expired_dashboard_token")
+        token_payload = parse_dashboard_token_payload(token_payload_raw)
+        worker_id_int = int(token_payload["worker_id"])
+        company_id_int = int(token_payload["company_id"])
     except (TypeError, ValueError) as exc:
         raise DashboardAccessError("invalid_dashboard_token") from exc
 
     worker = await db.get(Worker, worker_id_int)
+    if not worker or worker.company_id != company_id_int:
+        raise DashboardAccessError("dashboard_scope_denied")
     if not can_access_dashboard(worker):
         raise DashboardAccessError("dashboard_access_denied")
 

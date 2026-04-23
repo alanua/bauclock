@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Enum, Text
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Enum, Text, JSON
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 from db.security import encrypt_string, decrypt_string, hash_string
@@ -220,7 +220,7 @@ class Worker(Base):
 
     company = relationship("Company", back_populates="workers")
     site = relationship("Site", back_populates="workers")
-    time_events = relationship("TimeEvent", back_populates="worker")
+    time_events = relationship("TimeEvent", back_populates="worker", foreign_keys="TimeEvent.worker_id")
     payments = relationship("Payment", back_populates="worker", foreign_keys="Payment.worker_id")
     created_requests = relationship(
         "Request",
@@ -325,8 +325,13 @@ class TimeEvent(Base):
     lon = Column(Float, nullable=True)
     gps_accuracy_m = Column(Float, nullable=True)
     is_suspicious = Column(Boolean, default=False)
+    is_manual = Column(Boolean, nullable=False, default=False, server_default="0")
+    corrected_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    correction_reason = Column(String(255), nullable=True)
+    corrected_at = Column(DateTime(timezone=True), nullable=True)
 
-    worker = relationship("Worker", back_populates="time_events")
+    worker = relationship("Worker", back_populates="time_events", foreign_keys=[worker_id])
+    corrected_by_worker = relationship("Worker", foreign_keys=[corrected_by_worker_id])
 
 class Payment(Base):
     __tablename__ = "payments"
@@ -370,3 +375,47 @@ class DailySummary(Base):
     overtime_minutes = Column(Integer, default=0)
 
     worker = relationship("Worker", foreign_keys=[worker_id])
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_type = Column(String(64), nullable=False, index=True)
+    entity_id = Column(Integer, nullable=False, index=True)
+    action = Column(String(64), nullable=False)
+    old_value = Column(JSON, nullable=True)
+    new_value = Column(JSON, nullable=True)
+    performed_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class LegalAcceptanceLog(Base):
+    __tablename__ = "legal_acceptance_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_type = Column(String(32), nullable=False, index=True)
+    actor_id = Column(Integer, nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True, index=True)
+    document_type = Column(String(64), nullable=False, index=True)
+    document_version = Column(String(32), nullable=False)
+    action_type = Column(String(32), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RetentionHold(Base):
+    __tablename__ = "retention_holds"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_type = Column(String(64), nullable=False, index=True)
+    entity_id = Column(Integer, nullable=False, index=True)
+    hold_type = Column(String(32), nullable=False)
+    hold_reason = Column(String(255), nullable=True)
+    reason = Column(String(255), nullable=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True, index=True)
+    held_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    hold_until = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

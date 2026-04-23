@@ -10,7 +10,7 @@ from access.legacy_policy import can_access_dashboard
 from bot.config import settings
 from bot.redis_cache import redis_client
 from bot.utils.scope import is_platform_identity_on_non_platform_bot, platform_context_only_text
-from db.dashboard_tokens import DASHBOARD_TOKEN_TTL_SECONDS, dashboard_token_key
+from db.dashboard_tokens import DASHBOARD_TOKEN_TTL_SECONDS, build_dashboard_token_payload, dashboard_token_key
 from db.models import Worker
 
 
@@ -31,7 +31,10 @@ async def cmd_dashboard(message: Message, current_worker: Worker, locale: str):
     await redis_client.setex(
         dashboard_token_key(token),
         DASHBOARD_TOKEN_TTL_SECONDS,
-        str(current_worker.id),
+        build_dashboard_token_payload(
+            worker_id=current_worker.id,
+            company_id=current_worker.company_id,
+        ),
     )
 
     url = f"{settings.APP_URL.rstrip('/')}/dashboard?token={token}"

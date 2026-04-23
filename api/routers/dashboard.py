@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.redis_client import redis_client
+from api.services.arbzg_policy import evaluate_arbzg_flags, get_worker_arbzg_flags
 from api.services.dashboard_access import (
     DASHBOARD_RESPONSE_HEADERS,
     DashboardContext,
@@ -22,7 +23,8 @@ from api.services.dashboard_access import (
     get_miniapp_dashboard_context,
     get_miniapp_private_worker,
 )
-from db.calendar_service import list_worker_calendar_events
+from api.services.legal_acceptance import get_legal_acceptance_overview
+from db.calendar_service import list_company_calendar_events, list_worker_calendar_events
 from db.database import get_db
 from db.models import CalendarEvent, Company, EventType, Payment, Request, RequestStatus, Site, SitePartnerCompany, TimeEvent, Worker, WorkerAccessRole
 from db.request_service import (
@@ -34,6 +36,7 @@ from db.request_service import (
     resolve_request,
 )
 from db.security import decrypt_string
+from db.time_corrections import ManualTimeCorrectionError, apply_manual_time_correction
 
 
 router = APIRouter()
@@ -49,12 +52,32 @@ class WorkerProblemCreateRequest(BaseModel):
     related_date: date | None = None
 
 
+class ManualTimeCorrectionRequest(BaseModel):
+    reason: str
+    timestamp: datetime | None = None
+    event_type: str | None = None
+    site_id: int | None = None
+
+
 def _dashboard_access_denied() -> HTTPException:
-    return HTTPException(status_code=404, detail="Not found")
+    return HTTPException(status_code=403, detail="Forbidden")
 
 
 def _serialize_datetime(value) -> str | None:
     return value.isoformat() if value else None
+
+
+def _serialize_time_event(event: TimeEvent) -> dict[str, object]:
+    return {
+        "id": event.id,
+        "event_type": _event_type_value(event.event_type),
+        "timestamp": _serialize_datetime(event.timestamp),
+        "site_id": event.site_id,
+        "is_manual": bool(getattr(event, "is_manual", False)),
+        "correction_reason": getattr(event, "correction_reason", None),
+        "corrected_by_worker_id": getattr(event, "corrected_by_worker_id", None),
+        "corrected_at": _serialize_datetime(getattr(event, "corrected_at", None)),
+    }
 
 
 async def _get_company_worker_names(
@@ -281,6 +304,7 @@ async def _serialize_worker_home(
     latest_payment = await _get_latest_worker_payment(db, worker_id=worker.id)
     hourly_rate = float(worker.hourly_rate or 0)
     today_amount = round((day_minutes["work_minutes"] / 60) * hourly_rate, 2)
+    arbzg_flags = await get_worker_arbzg_flags(db, worker_id=worker.id, target_day=today, now=now)
 
     return {
         "user": {
@@ -296,6 +320,7 @@ async def _serialize_worker_home(
             "address": site.address if site else None,
         },
         "status": _worker_status(today_events),
+        "today_events": [_serialize_time_event(event) for event in today_events],
         "hours": {
             "today_minutes": day_minutes["work_minutes"],
             "break_minutes": day_minutes["break_minutes"],
@@ -322,6 +347,7 @@ async def _serialize_worker_home(
             "open_count": open_request_count,
             "items": [_serialize_worker_request(request) for request in worker_requests],
         },
+        "arbzg_flags": arbzg_flags,
     }
 
 
@@ -652,6 +678,7 @@ def _serialize_management_workers(
             "today_status_label": status["label"],
             "today_work_minutes": minutes["work_minutes"],
             "today_break_minutes": minutes["break_minutes"],
+            "arbzg_flags": evaluate_arbzg_flags(worker_events, now=now),
         }
         if include_financial_fields:
             item["rate"] = float(company_worker.hourly_rate or 0)
@@ -799,20 +826,14 @@ async def _serialize_management_home(
         now=now,
     )
     sites = await _serialize_management_sites(db, context=context)
-
-    open_request_count = await db.scalar(
-        select(func.count(Request.id)).where(
-            Request.company_id == context.company_id,
-            Request.status == RequestStatus.OPEN.value,
+    visible_requests = list(await list_company_requests(db, manager_worker=_dashboard_manager(context)))
+    open_request_count = sum(1 for request in visible_requests if request.status == RequestStatus.OPEN.value)
+    upcoming_calendar_count = 0
+    if access_role in {"company_owner", "objektmanager"}:
+        visible_calendar_events = list(
+            await list_company_calendar_events(db, manager_worker=_dashboard_manager(context))
         )
-    )
-    upcoming_calendar_count = await db.scalar(
-        select(func.count(CalendarEvent.id)).where(
-            CalendarEvent.company_id == context.company_id,
-            CalendarEvent.is_active.is_(True),
-            CalendarEvent.date_to >= today,
-        )
-    )
+        upcoming_calendar_count = sum(1 for event in visible_calendar_events if event.date_to >= today)
 
     month_start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
     payments = []
@@ -867,11 +888,32 @@ async def _serialize_management_home(
         events_by_worker=events_by_worker,
         now=now,
     )
+    arbzg_worker_flags = {
+        worker.id: evaluate_arbzg_flags(events_by_worker.get(worker.id, []), now=now)
+        for worker in workers
+    }
+    compliance = (
+        await get_legal_acceptance_overview(db, company_id=context.company_id)
+        if access_role in {"company_owner", "accountant", "platform_superadmin"}
+        else {
+            "company_documents": {},
+            "company_documents_complete": False,
+            "worker_notice_completion": {"completed": 0, "total": 0},
+        }
+    )
     return {
         "access_role": access_role,
         "role_groups": _management_role_groups(access_role),
         "scope_label": scope_label,
         "operations": today_status,
+        "arbzg": {
+            "flagged_workers": sum(1 for flags in arbzg_worker_flags.values() if flags),
+            "critical_workers": sum(
+                1
+                for flags in arbzg_worker_flags.values()
+                if any(flag["severity"] == "critical" for flag in flags)
+            ),
+        },
         "requests": {
             "open": int(open_request_count or 0),
         },
@@ -893,6 +935,7 @@ async def _serialize_management_home(
         },
         "sites": sites,
         "people": people_payload,
+        "compliance": compliance,
         "quick_entries": {
             "people": len(people),
             "sites": int(sites["total"]),
@@ -902,7 +945,6 @@ async def _serialize_management_home(
     }
 
 
-@router.get("/dashboard")
 async def serve_dashboard(
     request: FastAPIRequest,
     token: str | None = Query(default=None),
@@ -943,7 +985,6 @@ async def dashboard_miniapp_bootstrap(
     }
 
 
-@router.get("/api/dashboard/data")
 async def dashboard_data(
     token: str | None = Query(default=None),
     telegram_init_data: str | None = Header(default=None, alias="X-Telegram-Init-Data"),
@@ -1077,6 +1118,32 @@ async def dashboard_worker_request_create(
         raise _dashboard_access_denied() from exc
 
     return {"request": _serialize_worker_request(request)}
+
+
+@router.patch("/api/dashboard/time-events/{event_id}")
+async def dashboard_time_event_correct(
+    event_id: int,
+    payload: ManualTimeCorrectionRequest,
+    token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        actor_worker = await get_dashboard_worker(token, db, redis_client)
+        event = await apply_manual_time_correction(
+            db,
+            actor_worker=actor_worker,
+            event_id=event_id,
+            reason=payload.reason,
+            new_timestamp=payload.timestamp,
+            new_event_type=payload.event_type,
+            new_site_id=payload.site_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (DashboardAccessError, ManualTimeCorrectionError) as exc:
+        raise _dashboard_access_denied() from exc
+
+    return {"time_event": _serialize_time_event(event)}
 
 
 @router.get("/api/dashboard/requests")
