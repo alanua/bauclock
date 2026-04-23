@@ -2,11 +2,13 @@ import json
 from typing import Any
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bot.utils.access import normalize_usernames
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     BOT_TOKEN: str
     REDIS_URL: str = "redis://redis:6379/0"
     DATABASE_URL: str = "sqlite+aiosqlite:///./bauclock.db"
@@ -56,9 +58,5 @@ class Settings(BaseSettings):
         return self.BOT_ROLE == "platform" or (
             bool(bot_username) and bot_username == platform_username
         )
-    
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
-        
+
 settings = Settings()

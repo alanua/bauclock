@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.legal_acceptance_requirements import (
     GPS_SITE_PRESENCE_NOTICE_DOCUMENT,
+    GPS_REQUIREMENT_REQUIRED,
     PRIVACY_NOTICE_DOCUMENT,
     TIME_TRACKING_NOTICE_DOCUMENT,
     required_worker_document_types,
@@ -98,10 +99,23 @@ async def record_worker_onboarding_acknowledgements(
     *,
     worker_id: int,
     company_id: int,
-    gps_notice_enabled: bool = True,
+    gps_notice_enabled: bool | None = None,
 ) -> None:
+    gps_notice_required = bool(gps_notice_enabled)
+    if gps_notice_enabled is None:
+        worker = await db.get(Worker, worker_id)
+        if worker is None:
+            raise ValueError("worker_not_found")
+        gps_requirements = await resolve_worker_gps_site_presence_requirements(
+            db,
+            workers=[worker],
+        )
+        gps_notice_required = (
+            gps_requirements[int(worker.id)].state == GPS_REQUIREMENT_REQUIRED
+        )
+
     for document_type, document_version in WORKER_DOCUMENT_VERSIONS.items():
-        if document_type == GPS_SITE_PRESENCE_NOTICE_DOCUMENT and not gps_notice_enabled:
+        if document_type == GPS_SITE_PRESENCE_NOTICE_DOCUMENT and not gps_notice_required:
             continue
         await record_legal_acceptance(
             db,
@@ -207,10 +221,16 @@ async def get_legal_acceptance_overview(
     )
     worker_notice_states: list[dict[str, object]] = []
     completed_worker_count = 0
+    gps_requirement_counts = {
+        "required": 0,
+        "not_required": 0,
+        "not_applicable": 0,
+    }
     for worker in active_workers:
+        gps_requirement = gps_requirements[int(worker.id)]
         required_documents = required_worker_document_types(
             worker,
-            gps_site_presence_enabled=gps_requirements.get(int(worker.id), False),
+            gps_requirement=gps_requirement,
         )
         accepted_documents = accepted_documents_by_worker.get(int(worker.id), {})
         completed_documents = [
@@ -227,11 +247,18 @@ async def get_legal_acceptance_overview(
             for document_type in required_documents
             if document_type not in completed_documents
         ]
+        gps_requirement_counts[gps_requirement.state] += 1
         state = {
             "worker_id": int(worker.id),
             "required_documents": required_documents,
             "completed_documents": completed_documents,
             "missing_documents": missing_documents,
+            "gps_site_presence_requirement": {
+                "state": gps_requirement.state,
+                "source": gps_requirement.source,
+                "site_gps_capable": gps_requirement.site_gps_capable,
+                "configured_value": gps_requirement.configured_value,
+            },
             "complete": not missing_documents,
         }
         worker_notice_states.append(state)
@@ -248,6 +275,7 @@ async def get_legal_acceptance_overview(
             "completed": completed_worker_count,
             "total": active_worker_total,
         },
+        "gps_site_presence_requirement_counts": gps_requirement_counts,
         "worker_notice_states": worker_notice_states,
         "incomplete_workers": incomplete_workers,
     }

@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Enum, Text, JSON
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Enum, Text, JSON, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 from db.security import encrypt_string, decrypt_string, hash_string
@@ -68,6 +68,13 @@ class CalendarEventType(str, enum.Enum):
     PUBLIC_HOLIDAY = "public_holiday"
     NON_WORKING_DAY = "non_working_day"
 
+
+class ArbzgFindingState(str, enum.Enum):
+    OPEN = "open"
+    REVIEWED = "reviewed"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+
 class LanguageSupport(str, enum.Enum):
     DE = "de"
     UK = "uk"
@@ -92,6 +99,7 @@ class Company(Base):
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
     website = Column(String, nullable=True)
+    gps_site_presence_required = Column(Boolean, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     sites = relationship("Site", back_populates="company")
@@ -142,6 +150,7 @@ class Site(Base):
     lat = Column(Float, nullable=True)
     lon = Column(Float, nullable=True)
     radius_m = Column(Float, nullable=True)
+    gps_site_presence_required = Column(Boolean, nullable=True)
 
     company = relationship("Company", back_populates="sites")
     workers = relationship("Worker", back_populates="site")
@@ -213,6 +222,7 @@ class Worker(Base):
     )
     can_view_dashboard = Column(Boolean, default=False)
     time_tracking_enabled = Column(Boolean, nullable=False, default=True, server_default="1")
+    gps_site_presence_required_override = Column(Boolean, nullable=True)
     is_active = Column(Boolean, default=True)
     gdpr_consent_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -402,6 +412,41 @@ class LegalAcceptanceLog(Base):
     document_version = Column(String(32), nullable=False)
     action_type = Column(String(32), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ArbzgFinding(Base):
+    __tablename__ = "arbzg_findings"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "worker_id",
+            "target_date",
+            "finding_code",
+            name="uq_arbzg_findings_company_worker_date_code",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
+    target_date = Column(Date, nullable=False, index=True)
+    finding_code = Column(String(64), nullable=False, index=True)
+    severity = Column(String(16), nullable=False)
+    state = Column(
+        String(16),
+        nullable=False,
+        default=ArbzgFindingState.OPEN.value,
+        server_default=ArbzgFindingState.OPEN.value,
+    )
+    state_reason = Column(String(255), nullable=True)
+    created_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    updated_by_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class RetentionHold(Base):

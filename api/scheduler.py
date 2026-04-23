@@ -7,6 +7,7 @@ from access.legacy_policy import can_view_admin_features
 from api.bot_client import send_telegram_message, send_telegram_document
 from api.logger import logger
 from api.config import settings
+from api.redis_client import redis_client
 from api.services.arbzg_policy import get_worker_arbzg_flags
 from api.services.retention import run_retention_cycle
 from db.database import SessionLocal as async_session_maker
@@ -66,7 +67,7 @@ async def check_arbzg_pauses():
 async def run_retention_foundation():
     logger.info("Executing retention foundation run...")
     async with async_session_maker() as session:
-        report = await run_retention_cycle(session)
+        report = await run_retention_cycle(session, redis_client=redis_client)
         logger.info(f"Retention report: {report}")
 
 async def warn_unclosed_days_1800():

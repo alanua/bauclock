@@ -2,9 +2,11 @@ import json
 from typing import Any
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     API_PORT: int = 8000
     DATABASE_URL: str = "sqlite+aiosqlite:///./bauclock.db"
     BOT_TOKEN: str = ""
@@ -43,10 +45,5 @@ class Settings(BaseSettings):
         if isinstance(value, tuple):
             value = list(value)
         return [str(item).strip().lstrip("@").casefold() for item in value if str(item).strip()]
-    
-    # We load this locally if not provided in env for local tests
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
-        
+
 settings = Settings()

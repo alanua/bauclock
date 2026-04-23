@@ -45,6 +45,8 @@ def normalized_retention_hold_view(
 
 
 def _active_hold_filter(*, now: datetime):
+    # Canonical fields win for all new rows. Legacy fields remain readable only
+    # when old data still has not been normalized into the canonical columns.
     return and_(
         RetentionHold.is_active.is_(True),
         or_(
@@ -75,11 +77,9 @@ async def place_retention_hold(
         entity_id=entity_id,
         hold_type=hold_type,
         hold_reason=normalized_reason,
-        reason=normalized_reason,
         company_id=company_id,
         held_by_worker_id=held_by_worker_id,
         hold_until=hold_until,
-        expires_at=hold_until,
         is_active=True,
     )
     db.add(hold)

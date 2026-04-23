@@ -1,7 +1,9 @@
 import asyncio
+import json
 import os
 import sys
 from datetime import date, datetime, timedelta, timezone
+from fnmatch import fnmatch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -31,6 +33,7 @@ import api.routers.dashboard as dashboard_router
 from api.config import settings
 import api.services.datev_export as datev_export_service
 from api.services.arbzg_reporting import build_company_arbzg_day_report
+from api.services.arbzg_reviews import list_arbzg_findings, open_arbzg_finding, set_arbzg_finding_state
 from api.services.arbzg_policy import get_worker_arbzg_flags
 from api.services.audited_changes import (
     apply_audited_payment_update,
@@ -51,18 +54,40 @@ from api.services.retention_holds import (
     place_retention_hold,
     release_retention_holds,
 )
-from api.services.retention import run_retention_cycle
+from api.services.retention import (
+    DASHBOARD_TOKEN_RETENTION_ENTITY_TYPE,
+    INVITE_RETENTION_ENTITY_TYPE,
+    TRANSIENT_STATE_RETENTION_ENTITY_TYPE,
+    retention_key_entity_id,
+    run_retention_cycle,
+)
 from db.dashboard_tokens import build_dashboard_token_payload, dashboard_token_key
-from db.models import AuditLog, Base, BillingType, Company, EventType, LegalAcceptanceLog, MonthlyAdjustment, Payment, PaymentStatus, RetentionHold, Site, TimeEvent, Worker, WorkerAccessRole, WorkerType
+from db.models import ArbzgFinding, AuditLog, Base, BillingType, Company, EventType, LegalAcceptanceLog, MonthlyAdjustment, Payment, PaymentStatus, RetentionHold, Site, TimeEvent, Worker, WorkerAccessRole, WorkerType
 from db.time_corrections import apply_manual_time_correction
 
 
 class FakeRedis:
-    def __init__(self, values: dict[str, str | None]):
-        self.values = values
+    def __init__(self, values: dict[str, str | None], *, ttls: dict[str, int] | None = None):
+        self.values = dict(values)
+        self.ttls = dict(ttls or {})
 
     async def get(self, key: str) -> str | None:
         return self.values.get(key)
+
+    async def keys(self, pattern: str) -> list[str]:
+        return [key for key in self.values if fnmatch(key, pattern)]
+
+    async def ttl(self, key: str) -> int:
+        if key not in self.values:
+            return -2
+        return self.ttls.get(key, -1)
+
+    async def delete(self, key: str) -> int:
+        if key not in self.values:
+            return 0
+        self.values.pop(key, None)
+        self.ttls.pop(key, None)
+        return 1
 
 
 def run_db_test(test_coro):
@@ -83,11 +108,17 @@ def run_db_test(test_coro):
     asyncio.run(runner())
 
 
-async def seed_company(session, suffix: str) -> Company:
+async def seed_company(
+    session,
+    suffix: str,
+    *,
+    gps_site_presence_required: bool | None = None,
+) -> Company:
     company = Company(
         name=f"Company {suffix}",
         owner_telegram_id_enc=f"owner_enc_{suffix}",
         owner_telegram_id_hash=f"owner_hash_{suffix}",
+        gps_site_presence_required=gps_site_presence_required,
     )
     session.add(company)
     await session.flush()
@@ -102,6 +133,7 @@ async def seed_site(
     lat: float | None = None,
     lon: float | None = None,
     radius_m: float | None = None,
+    gps_site_presence_required: bool | None = None,
 ) -> Site:
     site = Site(
         company_id=company_id,
@@ -111,6 +143,7 @@ async def seed_site(
         lat=lat,
         lon=lon,
         radius_m=radius_m,
+        gps_site_presence_required=gps_site_presence_required,
     )
     session.add(site)
     await session.flush()
@@ -126,6 +159,7 @@ async def seed_worker(
     access_role: str = WorkerAccessRole.WORKER.value,
     site_id: int | None = None,
     time_tracking_enabled: bool = True,
+    gps_site_presence_required_override: bool | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
@@ -138,6 +172,7 @@ async def seed_worker(
         can_view_dashboard=can_view_dashboard,
         access_role=access_role,
         time_tracking_enabled=time_tracking_enabled,
+        gps_site_presence_required_override=gps_site_presence_required_override,
         is_active=True,
     )
     session.add(worker)
@@ -621,6 +656,11 @@ def test_legal_acceptance_completion_uses_worker_specific_requirements():
 
         assert overview_a["company_documents_complete"] is True
         assert overview_a["worker_notice_completion"] == {"completed": 2, "total": 3}
+        assert overview_a["gps_site_presence_requirement_counts"] == {
+            "required": 1,
+            "not_required": 0,
+            "not_applicable": 2,
+        }
         assert overview_a["incomplete_workers"] == [
             {
                 "worker_id": gps_worker.id,
@@ -634,6 +674,12 @@ def test_legal_acceptance_completion_uses_worker_specific_requirements():
                     "time_tracking_notice",
                 ],
                 "missing_documents": ["gps_site_presence_notice"],
+                "gps_site_presence_requirement": {
+                    "state": "required",
+                    "source": "fallback_site_gps_capable",
+                    "site_gps_capable": True,
+                    "configured_value": None,
+                },
                 "complete": False,
             }
         ]
@@ -644,9 +690,153 @@ def test_legal_acceptance_completion_uses_worker_specific_requirements():
         )
         assert regular_worker_state["complete"] is True
         assert regular_worker_state["missing_documents"] == []
+        assert regular_worker_state["gps_site_presence_requirement"]["state"] == "not_applicable"
 
         assert overview_b["worker_notice_completion"] == {"completed": 1, "total": 1}
         assert overview_b["incomplete_workers"] == []
+
+    run_db_test(run_test)
+
+
+def test_legal_acceptance_gps_requirement_precedence():
+    async def run_test(session):
+        company = await seed_company(
+            session,
+            "gps-precedence",
+            gps_site_presence_required=False,
+        )
+        site_required = await seed_site(
+            session,
+            company.id,
+            "gps-precedence-required",
+            lat=52.52,
+            lon=13.40,
+            radius_m=120,
+            gps_site_presence_required=True,
+        )
+        site_optional = await seed_site(
+            session,
+            company.id,
+            "gps-precedence-optional",
+            lat=52.53,
+            lon=13.41,
+            radius_m=120,
+            gps_site_presence_required=False,
+        )
+        site_default = await seed_site(
+            session,
+            company.id,
+            "gps-precedence-default",
+            lat=52.54,
+            lon=13.42,
+            radius_m=120,
+        )
+        owner = await seed_worker(
+            session,
+            company.id,
+            "gps-precedence-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        site_required_worker = await seed_worker(
+            session,
+            company.id,
+            "gps-site-required",
+            site_id=site_required.id,
+        )
+        company_opt_out_worker = await seed_worker(
+            session,
+            company.id,
+            "gps-company-opt-out",
+            site_id=site_default.id,
+        )
+        worker_override_false = await seed_worker(
+            session,
+            company.id,
+            "gps-worker-false",
+            site_id=site_required.id,
+            gps_site_presence_required_override=False,
+        )
+        worker_override_true = await seed_worker(
+            session,
+            company.id,
+            "gps-worker-true",
+            site_id=site_optional.id,
+            gps_site_presence_required_override=True,
+        )
+
+        await record_company_onboarding_acceptance(
+            session,
+            actor_worker_id=owner.id,
+            company_id=company.id,
+        )
+        await record_legal_acceptance(
+            session,
+            actor_type="worker",
+            actor_id=owner.id,
+            company_id=company.id,
+            document_type="privacy_notice",
+            document_version="2026-04-de-v1",
+            action_type="acknowledged",
+        )
+        for worker in [
+            site_required_worker,
+            company_opt_out_worker,
+            worker_override_false,
+            worker_override_true,
+        ]:
+            await record_worker_onboarding_acknowledgements(
+                session,
+                worker_id=worker.id,
+                company_id=company.id,
+                gps_notice_enabled=False,
+            )
+        await session.commit()
+
+        overview = await get_legal_acceptance_overview(session, company_id=company.id)
+        states = {
+            item["worker_id"]: item
+            for item in overview["worker_notice_states"]
+        }
+
+        assert states[site_required_worker.id]["gps_site_presence_requirement"] == {
+            "state": "required",
+            "source": "site_setting",
+            "site_gps_capable": True,
+            "configured_value": True,
+        }
+        assert states[site_required_worker.id]["complete"] is False
+        assert states[site_required_worker.id]["missing_documents"] == ["gps_site_presence_notice"]
+
+        assert states[company_opt_out_worker.id]["gps_site_presence_requirement"] == {
+            "state": "not_required",
+            "source": "company_setting",
+            "site_gps_capable": True,
+            "configured_value": False,
+        }
+        assert states[company_opt_out_worker.id]["complete"] is True
+
+        assert states[worker_override_false.id]["gps_site_presence_requirement"] == {
+            "state": "not_required",
+            "source": "worker_override",
+            "site_gps_capable": True,
+            "configured_value": False,
+        }
+        assert states[worker_override_false.id]["complete"] is True
+
+        assert states[worker_override_true.id]["gps_site_presence_requirement"] == {
+            "state": "required",
+            "source": "worker_override",
+            "site_gps_capable": True,
+            "configured_value": True,
+        }
+        assert states[worker_override_true.id]["complete"] is False
+        assert overview["gps_site_presence_requirement_counts"] == {
+            "required": 2,
+            "not_required": 2,
+            "not_applicable": 1,
+        }
 
     run_db_test(run_test)
 
@@ -852,8 +1042,8 @@ def test_retention_hold_normalization_supports_legacy_and_canonical_rows():
         ) is True
 
         stored_canonical = await session.get(RetentionHold, canonical_hold.id)
-        assert stored_canonical.reason == "Canonical dispute hold"
-        assert stored_canonical.expires_at.isoformat().startswith("2026-05-01T00:00:00")
+        assert stored_canonical.reason is None
+        assert stored_canonical.expires_at is None
 
     run_db_test(run_test)
 
@@ -933,6 +1123,155 @@ def test_retention_cycle_only_deletes_in_explicit_destructive_mode(monkeypatch):
         assert await session.get(TimeEvent, held_event.id) is not None
         assert await session.get(TimeEvent, deletable_event.id) is None
         assert await session.get(AuditLog, recent_audit.id) is not None
+
+    run_db_test(run_test)
+
+
+def test_retention_cycle_reports_and_cleans_invites_and_dashboard_tokens(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(settings, "ENABLE_RETENTION", True)
+        monkeypatch.setattr(settings, "RETENTION_DRY_RUN", True)
+        monkeypatch.setattr(settings, "DATA_RETENTION_YEARS_TIME_EVENTS", 3)
+        monkeypatch.setattr(settings, "DATA_RETENTION_YEARS_AUDIT_LOGS", 5)
+
+        company = await seed_company(session, "retention-redis")
+        actor = await seed_worker(
+            session,
+            company.id,
+            "retention-redis-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        held_invite_key = "inv_held_company_worker"
+        deletable_invite_key = "partner_inv_cleanup"
+        expired_dashboard_token_key = dashboard_token_key("expired-dashboard-token")
+        redis_client = FakeRedis(
+            {
+                held_invite_key: json.dumps({"company_id": company.id}),
+                deletable_invite_key: json.dumps({"general_contractor_company_id": company.id}),
+                expired_dashboard_token_key: build_dashboard_token_payload(
+                    worker_id=actor.id,
+                    company_id=company.id,
+                    issued_at=datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc),
+                ),
+            },
+            ttls={
+                held_invite_key: -1,
+                deletable_invite_key: -1,
+                expired_dashboard_token_key: 600,
+            },
+        )
+        await place_retention_hold(
+            session,
+            entity_type=INVITE_RETENTION_ENTITY_TYPE,
+            entity_id=retention_key_entity_id(
+                entity_type=INVITE_RETENTION_ENTITY_TYPE,
+                key=held_invite_key,
+            ),
+            hold_reason="Pending compliance review",
+            company_id=company.id,
+            held_by_worker_id=actor.id,
+            hold_until=datetime(2026, 5, 1, tzinfo=timezone.utc),
+        )
+        await session.commit()
+
+        dry_run_report = await run_retention_cycle(
+            session,
+            now=datetime(2026, 4, 21, tzinfo=timezone.utc),
+            company_id=company.id,
+            destructive=False,
+            redis_client=redis_client,
+        )
+
+        assert dry_run_report["by_class"]["invites"]["candidate_count"] == 2
+        assert dry_run_report["by_class"]["invites"]["held_count"] == 1
+        assert dry_run_report["by_class"]["invites"]["skipped_count"] == 1
+        assert dry_run_report["by_class"]["dashboard_tokens"]["candidate_count"] == 1
+        assert dry_run_report["by_class"]["dashboard_tokens"]["deleted_count"] == 0
+        assert held_invite_key in redis_client.values
+        assert deletable_invite_key in redis_client.values
+        assert expired_dashboard_token_key in redis_client.values
+
+        destructive_report = await run_retention_cycle(
+            session,
+            now=datetime(2026, 4, 21, tzinfo=timezone.utc),
+            company_id=company.id,
+            destructive=True,
+            redis_client=redis_client,
+        )
+
+        assert destructive_report["by_class"]["invites"]["held_count"] == 1
+        assert destructive_report["by_class"]["invites"]["deleted_count"] == 1
+        assert destructive_report["by_class"]["dashboard_tokens"]["deleted_count"] == 1
+        assert held_invite_key in redis_client.values
+        assert deletable_invite_key not in redis_client.values
+        assert expired_dashboard_token_key not in redis_client.values
+
+    run_db_test(run_test)
+
+
+def test_retention_cycle_reports_and_cleans_transient_states(monkeypatch):
+    async def run_test(session):
+        monkeypatch.setattr(settings, "ENABLE_RETENTION", True)
+        monkeypatch.setattr(settings, "RETENTION_DRY_RUN", True)
+
+        company = await seed_company(session, "retention-fsm")
+        actor = await seed_worker(
+            session,
+            company.id,
+            "retention-fsm-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        held_state_key = "fsm:bot:chat:1:user:1:state"
+        deletable_state_key = "fsm:bot:chat:2:user:2:data"
+        redis_client = FakeRedis(
+            {
+                held_state_key: "state_payload",
+                deletable_state_key: "data_payload",
+            },
+            ttls={
+                held_state_key: -1,
+                deletable_state_key: -1,
+            },
+        )
+        await place_retention_hold(
+            session,
+            entity_type=TRANSIENT_STATE_RETENTION_ENTITY_TYPE,
+            entity_id=retention_key_entity_id(
+                entity_type=TRANSIENT_STATE_RETENTION_ENTITY_TYPE,
+                key=held_state_key,
+            ),
+            hold_reason="Investigating state corruption",
+            company_id=company.id,
+            held_by_worker_id=actor.id,
+            hold_until=datetime(2026, 5, 1, tzinfo=timezone.utc),
+        )
+        await session.commit()
+
+        dry_run_report = await run_retention_cycle(
+            session,
+            now=datetime(2026, 4, 21, tzinfo=timezone.utc),
+            destructive=False,
+            redis_client=redis_client,
+        )
+        assert dry_run_report["by_class"]["transient_states"]["candidate_count"] == 2
+        assert dry_run_report["by_class"]["transient_states"]["held_count"] == 1
+        assert dry_run_report["by_class"]["transient_states"]["skipped_count"] == 1
+        assert held_state_key in redis_client.values
+        assert deletable_state_key in redis_client.values
+
+        destructive_report = await run_retention_cycle(
+            session,
+            now=datetime(2026, 4, 21, tzinfo=timezone.utc),
+            destructive=True,
+            redis_client=redis_client,
+        )
+        assert destructive_report["by_class"]["transient_states"]["deleted_count"] == 1
+        assert held_state_key in redis_client.values
+        assert deletable_state_key not in redis_client.values
 
     run_db_test(run_test)
 
@@ -1140,7 +1479,7 @@ def test_arbzg_company_day_report_summarizes_codes():
         assert report["summary_counts"]["break_reminder_after_6h"] == 1
         assert report["summary_counts"]["rest_period_warning"] == 1
         assert flagged_codes == {"break_reminder_after_6h", "rest_period_warning"}
-        assert flagged_item["review_state"] == "unreviewed"
+        assert flagged_item["review_state"] == "open"
         assert clean_item["flags"] == []
         assert clean_item["review_state"] == "clean"
 
@@ -1193,6 +1532,240 @@ def test_arbzg_company_day_report_returns_clean_results_without_flags():
         assert report["flagged_workers"] == 0
         assert report["summary_counts"] == {}
         assert report["items"][0]["flags"] == []
+
+    run_db_test(run_test)
+
+
+def test_arbzg_review_workflow_persists_and_overlays_report():
+    async def run_test(session):
+        company = await seed_company(session, "arbzg-review")
+        site = await seed_site(session, company.id, "arbzg-review")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "arbzg-review-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "arbzg-review-worker", site_id=site.id)
+        other_company = await seed_company(session, "arbzg-review-other")
+        other_worker = await seed_worker(session, other_company.id, "arbzg-review-other-worker")
+        target_day = date(2026, 4, 21)
+        session.add_all(
+            [
+                TimeEvent(
+                    worker_id=worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKOUT,
+                    timestamp=datetime(2026, 4, 20, 23, 30, tzinfo=timezone.utc),
+                ),
+                TimeEvent(
+                    worker_id=worker.id,
+                    site_id=site.id,
+                    event_type=EventType.CHECKIN,
+                    timestamp=datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        await session.flush()
+
+        break_finding = await open_arbzg_finding(
+            session,
+            company_id=company.id,
+            worker_id=worker.id,
+            target_date=target_day,
+            finding_code="break_reminder_after_6h",
+            severity="warning",
+            actor_worker_id=owner.id,
+        )
+        rest_finding = await open_arbzg_finding(
+            session,
+            company_id=company.id,
+            worker_id=worker.id,
+            target_date=target_day,
+            finding_code="rest_period_warning",
+            severity="critical",
+            actor_worker_id=owner.id,
+        )
+        await set_arbzg_finding_state(
+            session,
+            finding_id=break_finding.id,
+            company_id=company.id,
+            state="reviewed",
+            actor_worker_id=owner.id,
+        )
+        await set_arbzg_finding_state(
+            session,
+            finding_id=break_finding.id,
+            company_id=company.id,
+            state="resolved",
+            actor_worker_id=owner.id,
+            reason="Break confirmed after manual review",
+        )
+        await set_arbzg_finding_state(
+            session,
+            finding_id=rest_finding.id,
+            company_id=company.id,
+            state="dismissed",
+            actor_worker_id=owner.id,
+            reason="Previous day checkout corrected",
+        )
+        await session.commit()
+
+        findings = await list_arbzg_findings(
+            session,
+            company_id=company.id,
+            target_date=target_day,
+        )
+        findings_by_code = {
+            finding["finding_code"]: finding
+            for finding in findings
+        }
+        report = await build_company_arbzg_day_report(
+            session,
+            company_id=company.id,
+            target_day=target_day,
+            now=datetime(2026, 4, 21, 15, 30, tzinfo=timezone.utc),
+        )
+        flagged_item = next(item for item in report["items"] if item["worker_id"] == worker.id)
+        review_states = {
+            flag["code"]: flag["review_state"]
+            for flag in flagged_item["flags"]
+        }
+
+        assert findings_by_code["break_reminder_after_6h"]["state"] == "resolved"
+        assert findings_by_code["break_reminder_after_6h"]["state_reason"] == "Break confirmed after manual review"
+        assert findings_by_code["rest_period_warning"]["state"] == "dismissed"
+        assert findings_by_code["rest_period_warning"]["state_reason"] == "Previous day checkout corrected"
+        assert review_states == {
+            "break_reminder_after_6h": "resolved",
+            "rest_period_warning": "dismissed",
+        }
+        assert flagged_item["review_state"] == "mixed"
+        assert flagged_item["is_reviewed"] is True
+
+        with pytest.raises(ValueError, match="arbzg_worker_company_scope_denied"):
+            await open_arbzg_finding(
+                session,
+                company_id=company.id,
+                worker_id=other_worker.id,
+                target_date=target_day,
+                finding_code="break_reminder_after_6h",
+                severity="warning",
+                actor_worker_id=owner.id,
+            )
+
+    run_db_test(run_test)
+
+
+def test_arbzg_review_routes_enforce_scope(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "arbzg-route")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "arbzg-route-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "arbzg-route-worker")
+        other_company = await seed_company(session, "arbzg-route-other")
+        other_owner = await seed_worker(
+            session,
+            other_company.id,
+            "arbzg-route-other-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        plain_worker = await seed_worker(
+            session,
+            company.id,
+            "arbzg-route-plain-worker",
+            access_role=WorkerAccessRole.WORKER.value,
+        )
+        await session.commit()
+
+        owner_token = "arbzg-route-owner-token"
+        other_owner_token = "arbzg-route-other-owner-token"
+        worker_token = "arbzg-route-worker-token"
+        monkeypatch.setattr(compliance_router, "decrypt_string", lambda value: value)
+        monkeypatch.setattr(
+            compliance_router,
+            "redis_client",
+            FakeRedis(
+                {
+                    dashboard_token_key(owner_token): build_dashboard_token_payload(
+                        worker_id=owner.id,
+                        company_id=owner.company_id,
+                    ),
+                    dashboard_token_key(other_owner_token): build_dashboard_token_payload(
+                        worker_id=other_owner.id,
+                        company_id=other_owner.company_id,
+                    ),
+                    dashboard_token_key(worker_token): build_dashboard_token_payload(
+                        worker_id=plain_worker.id,
+                        company_id=plain_worker.company_id,
+                    ),
+                }
+            ),
+        )
+
+        opened = await compliance_router.compliance_open_arbzg_review_finding(
+            payload=compliance_router.ArbzgFindingOpenRequest(
+                worker_id=worker.id,
+                target_date=date(2026, 4, 21),
+                finding_code="daily_duration_warning",
+                severity="warning",
+            ),
+            token=owner_token,
+            company_id=None,
+            db=session,
+        )
+        assert opened["state"] == "open"
+
+        updated = await compliance_router.compliance_update_arbzg_review_finding(
+            finding_id=opened["id"],
+            payload=compliance_router.ArbzgFindingStateUpdateRequest(state="reviewed"),
+            token=owner_token,
+            company_id=None,
+            db=session,
+        )
+        findings = await compliance_router.compliance_arbzg_findings(
+            token=owner_token,
+            company_id=None,
+            target_day=date(2026, 4, 21),
+            state=None,
+            db=session,
+        )
+
+        assert updated["state"] == "reviewed"
+        assert findings["items"][0]["finding_code"] == "daily_duration_warning"
+
+        with pytest.raises(HTTPException) as worker_exc:
+            await compliance_router.compliance_open_arbzg_review_finding(
+                payload=compliance_router.ArbzgFindingOpenRequest(
+                    worker_id=worker.id,
+                    target_date=date(2026, 4, 21),
+                    finding_code="daily_duration_warning",
+                ),
+                token=worker_token,
+                company_id=None,
+                db=session,
+            )
+        assert worker_exc.value.status_code == 403
+
+        with pytest.raises(HTTPException) as cross_company_exc:
+            await compliance_router.compliance_arbzg_findings(
+                token=other_owner_token,
+                company_id=company.id,
+                target_day=date(2026, 4, 21),
+                state=None,
+                db=session,
+            )
+        assert cross_company_exc.value.status_code == 403
 
     run_db_test(run_test)
 

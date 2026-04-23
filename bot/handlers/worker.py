@@ -403,7 +403,6 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
         session,
         worker_id=new_worker.id,
         company_id=new_worker.company_id,
-        gps_notice_enabled=True,
     )
     await session.commit()
     
