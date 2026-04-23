@@ -1218,6 +1218,14 @@ def test_datev_export_requires_token_and_excludes_overtime(monkeypatch):
         )
         worker = await seed_worker(session, company.id, "datev-worker")
         other_company = await seed_company(session, "datev-other")
+        other_owner = await seed_worker(
+            session,
+            other_company.id,
+            "datev-other-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
         other_worker = await seed_worker(session, other_company.id, "datev-other-worker")
         start_date = datetime(2026, 4, 1, tzinfo=timezone.utc)
         end_date = datetime(2026, 4, 30, tzinfo=timezone.utc)
@@ -1256,6 +1264,7 @@ def test_datev_export_requires_token_and_excludes_overtime(monkeypatch):
 
         token = "datev-token"
         manager_token = "datev-manager-token"
+        other_owner_token = "datev-other-owner-token"
         monkeypatch.setattr(datev_export_service, "decrypt_string", lambda value: value)
         monkeypatch.setattr(
             admin_router,
@@ -1265,11 +1274,14 @@ def test_datev_export_requires_token_and_excludes_overtime(monkeypatch):
                     dashboard_token_key(token): build_dashboard_token_payload(
                         worker_id=owner.id,
                         company_id=owner.company_id,
-                    )
-                ,
+                    ),
                     dashboard_token_key(manager_token): build_dashboard_token_payload(
                         worker_id=manager.id,
                         company_id=manager.company_id,
+                    ),
+                    dashboard_token_key(other_owner_token): build_dashboard_token_payload(
+                        worker_id=other_owner.id,
+                        company_id=other_owner.company_id,
                     ),
                 }
             ),
@@ -1302,6 +1314,16 @@ def test_datev_export_requires_token_and_excludes_overtime(monkeypatch):
         assert empty_csv_data.strip().splitlines() == [
             "Worker Name;Worker Type;Hours Paid;Hourly Rate;Total Amount Base;Period Start;Period End"
         ]
+
+        other_owner_csv_data = await admin_router.export_datev(
+            start_date=start_date,
+            end_date=end_date,
+            token=other_owner_token,
+            db=session,
+        )
+        assert "999.00" in other_owner_csv_data
+        assert "160.00" not in other_owner_csv_data
+        assert "90.00" not in other_owner_csv_data
 
         with pytest.raises(HTTPException) as exc_info:
             await admin_router.export_datev(

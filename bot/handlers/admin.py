@@ -22,8 +22,6 @@ router = Router()
 
 
 class AdminStates(StatesGroup):
-    waiting_for_worker_selection = State()
-    waiting_for_action = State()
     waiting_for_new_rate = State()
 
 

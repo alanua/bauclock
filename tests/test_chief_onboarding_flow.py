@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -101,6 +102,8 @@ from db.models import (
     CompanyPublicProfile,
     EmploymentStatus,
     EmploymentType,
+    Payment,
+    PaymentStatus,
     Site,
     SitePartnerCompany,
     Worker,
@@ -957,6 +960,115 @@ def test_accountant_cannot_commit_rate_mutations_through_admin_state_handler():
         assert "Zugriff verweigert" in message.answer.await_args.args[0]
 
     asyncio.run(run_test())
+
+
+def test_accountant_cannot_change_access_role_through_people_editor():
+    async def run_test():
+        state = FakeState()
+        await state.update_data(people_edit_worker_id=99)
+        callback = SimpleNamespace(
+            data=f"people_role_{WorkerAccessRole.ACCOUNTANT.value}",
+            message=SimpleNamespace(edit_text=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        session = SimpleNamespace(scalar=AsyncMock())
+        accountant = SimpleNamespace(
+            id=5,
+            company_id=1,
+            is_active=True,
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.ACCOUNTANT.value,
+        )
+
+        await chief_handler.update_people_role(
+            callback=callback,
+            state=state,
+            session=session,
+            current_worker=accountant,
+            locale="de",
+        )
+
+        session.scalar.assert_not_awaited()
+        assert state.current_state is None
+        assert state.data == {}
+        assert "Keine Berechtigung" in callback.message.edit_text.await_args.args[0]
+
+    asyncio.run(run_test())
+
+
+def test_owner_admin_history_does_not_cross_company_boundaries():
+    async def run_test(session):
+        company_a = Company(
+            name="Admin Scope A",
+            owner_telegram_id_enc="owner_a_enc",
+            owner_telegram_id_hash=hash_string("owner-a"),
+        )
+        company_b = Company(
+            name="Admin Scope B",
+            owner_telegram_id_enc="owner_b_enc",
+            owner_telegram_id_hash=hash_string("owner-b"),
+        )
+        session.add_all([company_a, company_b])
+        await session.flush()
+
+        owner = Worker(
+            company_id=company_a.id,
+            telegram_id_enc="owner_a_enc",
+            telegram_id_hash=hash_string("owner-a"),
+            full_name_enc="Owner A",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        foreign_worker = Worker(
+            company_id=company_b.id,
+            telegram_id_enc="worker_b_enc",
+            telegram_id_hash=hash_string("worker-b"),
+            full_name_enc="Worker B",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.WORKER.value,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        session.add_all([owner, foreign_worker])
+        await session.flush()
+        session.add(
+            Payment(
+                worker_id=foreign_worker.id,
+                period_start=datetime(2026, 4, 1, tzinfo=timezone.utc),
+                period_end=datetime(2026, 4, 30, tzinfo=timezone.utc),
+                hours_paid=8,
+                amount_paid=160,
+                status=PaymentStatus.CONFIRMED,
+                payment_type="CONTRACT",
+            )
+        )
+        await session.commit()
+
+        callback = SimpleNamespace(
+            data=f"adm_hist_{foreign_worker.id}",
+            message=SimpleNamespace(edit_text=AsyncMock()),
+        )
+
+        await admin_handler.admin_history(
+            callback=callback,
+            session=session,
+            current_worker=owner,
+            locale="de",
+        )
+
+        callback.message.edit_text.assert_not_awaited()
+
+    run_db_test(run_test)
 
 
 def test_worker_invite_payload_includes_canonical_employment(monkeypatch):
