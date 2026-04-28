@@ -6,7 +6,16 @@ from tempfile import TemporaryDirectory
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from db.models import Base, BillingType, Company, RequestStatus, Worker, WorkerType
+from db.models import (
+    Base,
+    BillingType,
+    Company,
+    RequestStatus,
+    Site,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
 from db.request_service import (
     RequestAccessError,
     create_request,
@@ -52,20 +61,37 @@ async def seed_worker(
     suffix: str,
     *,
     can_view_dashboard: bool = False,
+    site_id: int | None = None,
+    access_role: WorkerAccessRole | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
+        site_id=site_id,
         telegram_id_enc=f"telegram_enc_{suffix}",
         telegram_id_hash=f"telegram_hash_{suffix}",
         full_name_enc=f"name_enc_{suffix}",
         worker_type=WorkerType.FESTANGESTELLT,
         billing_type=BillingType.HOURLY,
+        access_role=(access_role or WorkerAccessRole.WORKER).value,
         can_view_dashboard=can_view_dashboard,
         is_active=True,
     )
     session.add(worker)
     await session.flush()
     return worker
+
+
+async def seed_site(session, company_id: int, suffix: str) -> Site:
+    site = Site(
+        company_id=company_id,
+        name=f"Site {suffix}",
+        address=f"Address {suffix}",
+        qr_token=f"site-token-{suffix}",
+        is_active=True,
+    )
+    session.add(site)
+    await session.flush()
+    return site
 
 
 def test_create_worker_self_request():
@@ -165,6 +191,53 @@ def test_list_company_requests_for_dashboard_capable_manager():
     run_db_test(run_test)
 
 
+def test_list_company_requests_hides_out_of_site_requests_from_objektmanager():
+    async def run_test(session):
+        company = await seed_company(session, "objektmanager-list")
+        own_site = await seed_site(session, company.id, "own")
+        other_site = await seed_site(session, company.id, "other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "site-manager",
+            can_view_dashboard=True,
+            site_id=own_site.id,
+            access_role=WorkerAccessRole.OBJEKTMANAGER,
+        )
+        own_site_worker = await seed_worker(
+            session,
+            company.id,
+            "own-site-worker",
+            site_id=own_site.id,
+        )
+        other_site_worker = await seed_worker(
+            session,
+            company.id,
+            "other-site-worker",
+            site_id=other_site.id,
+        )
+
+        visible_request = await create_request(
+            session,
+            creator_worker=own_site_worker,
+            text="Visible",
+        )
+        await create_request(
+            session,
+            creator_worker=other_site_worker,
+            text="Hidden",
+        )
+
+        company_requests = await list_company_requests(
+            session,
+            manager_worker=manager,
+        )
+
+        assert {request.id for request in company_requests} == {visible_request.id}
+
+    run_db_test(run_test)
+
+
 def test_list_company_requests_rejects_non_manager_worker():
     async def run_test(session):
         company = await seed_company(session, "denied")
@@ -201,6 +274,68 @@ def test_resolve_request():
     run_db_test(run_test)
 
 
+def test_resolve_request_denies_cross_company_request_id():
+    async def run_test(session):
+        company = await seed_company(session, "resolve-cross")
+        other_company = await seed_company(session, "resolve-other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "manager",
+            can_view_dashboard=True,
+        )
+        other_worker = await seed_worker(session, other_company.id, "other-worker")
+        request = await create_request(
+            session,
+            creator_worker=other_worker,
+            text="Other company",
+        )
+
+        with pytest.raises(RequestAccessError, match="request_not_found"):
+            await resolve_request(
+                session,
+                request_id=request.id,
+                manager_worker=manager,
+            )
+
+    run_db_test(run_test)
+
+
+def test_resolve_request_denies_objektmanager_out_of_site_request_id():
+    async def run_test(session):
+        company = await seed_company(session, "resolve-site-scope")
+        own_site = await seed_site(session, company.id, "resolve-own")
+        other_site = await seed_site(session, company.id, "resolve-other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "site-manager",
+            can_view_dashboard=True,
+            site_id=own_site.id,
+            access_role=WorkerAccessRole.OBJEKTMANAGER,
+        )
+        other_site_worker = await seed_worker(
+            session,
+            company.id,
+            "other-site-worker",
+            site_id=other_site.id,
+        )
+        request = await create_request(
+            session,
+            creator_worker=other_site_worker,
+            text="Other site",
+        )
+
+        with pytest.raises(RequestAccessError, match="request_scope_denied"):
+            await resolve_request(
+                session,
+                request_id=request.id,
+                manager_worker=manager,
+            )
+
+    run_db_test(run_test)
+
+
 def test_reject_request():
     async def run_test(session):
         company = await seed_company(session, "reject")
@@ -222,5 +357,67 @@ def test_reject_request():
         assert rejected.status == RequestStatus.REJECTED.value
         assert rejected.resolved_at is None
         assert rejected.updated_at is not None
+
+    run_db_test(run_test)
+
+
+def test_reject_request_denies_cross_company_request_id():
+    async def run_test(session):
+        company = await seed_company(session, "reject-cross")
+        other_company = await seed_company(session, "reject-other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "manager",
+            can_view_dashboard=True,
+        )
+        other_worker = await seed_worker(session, other_company.id, "other-worker")
+        request = await create_request(
+            session,
+            creator_worker=other_worker,
+            text="Other company",
+        )
+
+        with pytest.raises(RequestAccessError, match="request_not_found"):
+            await reject_request(
+                session,
+                request_id=request.id,
+                manager_worker=manager,
+            )
+
+    run_db_test(run_test)
+
+
+def test_reject_request_denies_objektmanager_out_of_site_request_id():
+    async def run_test(session):
+        company = await seed_company(session, "reject-site-scope")
+        own_site = await seed_site(session, company.id, "reject-own")
+        other_site = await seed_site(session, company.id, "reject-other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "site-manager",
+            can_view_dashboard=True,
+            site_id=own_site.id,
+            access_role=WorkerAccessRole.OBJEKTMANAGER,
+        )
+        other_site_worker = await seed_worker(
+            session,
+            company.id,
+            "other-site-worker",
+            site_id=other_site.id,
+        )
+        request = await create_request(
+            session,
+            creator_worker=other_site_worker,
+            text="Other site",
+        )
+
+        with pytest.raises(RequestAccessError, match="request_scope_denied"):
+            await reject_request(
+                session,
+                request_id=request.id,
+                manager_worker=manager,
+            )
 
     run_db_test(run_test)

@@ -29,7 +29,16 @@ install_import_stubs()
 
 import api.routers.dashboard as dashboard_router
 from db.dashboard_tokens import build_dashboard_token_payload, dashboard_token_key
-from db.models import Base, BillingType, Company, RequestStatus, Worker, WorkerType
+from db.models import (
+    Base,
+    BillingType,
+    Company,
+    RequestStatus,
+    Site,
+    Worker,
+    WorkerAccessRole,
+    WorkerType,
+)
 from db.request_service import create_request
 
 
@@ -76,20 +85,37 @@ async def seed_worker(
     suffix: str,
     *,
     can_view_dashboard: bool = False,
+    site_id: int | None = None,
+    access_role: WorkerAccessRole | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
+        site_id=site_id,
         telegram_id_enc=f"telegram_enc_{suffix}",
         telegram_id_hash=f"telegram_hash_{suffix}",
         full_name_enc=f"Worker {suffix}",
         worker_type=WorkerType.FESTANGESTELLT,
         billing_type=BillingType.HOURLY,
+        access_role=(access_role or WorkerAccessRole.WORKER).value,
         can_view_dashboard=can_view_dashboard,
         is_active=True,
     )
     session.add(worker)
     await session.flush()
     return worker
+
+
+async def seed_site(session, company_id: int, suffix: str) -> Site:
+    site = Site(
+        company_id=company_id,
+        name=f"Site {suffix}",
+        address=f"Address {suffix}",
+        qr_token=f"dashboard-site-token-{suffix}",
+        is_active=True,
+    )
+    session.add(site)
+    await session.flush()
+    return site
 
 
 def dashboard_token_for(worker: Worker) -> tuple[str, FakeRedis]:
@@ -213,5 +239,109 @@ def test_reject_action_updates_status(monkeypatch):
         assert response["status"] == RequestStatus.REJECTED.value
         assert refreshed.status == RequestStatus.REJECTED.value
         assert refreshed.resolved_at is None
+
+    run_db_test(run_test)
+
+
+@pytest.mark.parametrize(
+    ("action_name", "expected_status"),
+    [
+        ("dashboard_request_resolve", RequestStatus.RESOLVED.value),
+        ("dashboard_request_reject", RequestStatus.REJECTED.value),
+    ],
+)
+def test_request_action_denies_cross_company_request_id(
+    monkeypatch,
+    action_name,
+    expected_status,
+):
+    async def run_test(session):
+        company = await seed_company(session, f"{action_name}-company")
+        other_company = await seed_company(session, f"{action_name}-other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            f"{action_name}-manager",
+            can_view_dashboard=True,
+        )
+        other_worker = await seed_worker(
+            session,
+            other_company.id,
+            f"{action_name}-other-worker",
+        )
+        request = await create_request(
+            session,
+            creator_worker=other_worker,
+            text="Other company request",
+        )
+
+        token, redis_client = dashboard_token_for(manager)
+        monkeypatch.setattr(dashboard_router, "redis_client", redis_client)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await getattr(dashboard_router, action_name)(
+                request_id=request.id,
+                token=token,
+                db=session,
+            )
+
+        refreshed = await session.get(type(request), request.id)
+        assert exc_info.value.status_code == 403
+        assert refreshed.status != expected_status
+        assert refreshed.status == RequestStatus.OPEN.value
+
+    run_db_test(run_test)
+
+
+@pytest.mark.parametrize(
+    ("action_name", "expected_status"),
+    [
+        ("dashboard_request_resolve", RequestStatus.RESOLVED.value),
+        ("dashboard_request_reject", RequestStatus.REJECTED.value),
+    ],
+)
+def test_request_action_denies_objektmanager_out_of_site_request_id(
+    monkeypatch,
+    action_name,
+    expected_status,
+):
+    async def run_test(session):
+        company = await seed_company(session, f"{action_name}-site-scope")
+        own_site = await seed_site(session, company.id, f"{action_name}-own")
+        other_site = await seed_site(session, company.id, f"{action_name}-other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            f"{action_name}-site-manager",
+            can_view_dashboard=True,
+            site_id=own_site.id,
+            access_role=WorkerAccessRole.OBJEKTMANAGER,
+        )
+        other_site_worker = await seed_worker(
+            session,
+            company.id,
+            f"{action_name}-other-site-worker",
+            site_id=other_site.id,
+        )
+        request = await create_request(
+            session,
+            creator_worker=other_site_worker,
+            text="Other site request",
+        )
+
+        token, redis_client = dashboard_token_for(manager)
+        monkeypatch.setattr(dashboard_router, "redis_client", redis_client)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await getattr(dashboard_router, action_name)(
+                request_id=request.id,
+                token=token,
+                db=session,
+            )
+
+        refreshed = await session.get(type(request), request.id)
+        assert exc_info.value.status_code == 403
+        assert refreshed.status != expected_status
+        assert refreshed.status == RequestStatus.OPEN.value
 
     run_db_test(run_test)
