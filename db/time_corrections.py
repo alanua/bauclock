@@ -26,6 +26,17 @@ def _worker_in_actor_scope(actor_worker: Worker, target_worker: Worker) -> bool:
     return False
 
 
+def _site_reassignment_in_actor_scope(actor_worker: Worker, target_site: Site) -> bool:
+    role = dashboard_access_role(actor_worker)
+    if target_site.company_id != actor_worker.company_id or not target_site.is_active:
+        return False
+    if role == "company_owner":
+        return True
+    if role == "objektmanager":
+        return actor_worker.site_id is not None and target_site.id == actor_worker.site_id
+    return False
+
+
 async def apply_manual_time_correction(
     db: AsyncSession,
     *,
@@ -68,7 +79,7 @@ async def apply_manual_time_correction(
         event.timestamp = new_timestamp
     if new_site_id is not None:
         site = await db.get(Site, new_site_id)
-        if not site or site.company_id != actor_worker.company_id or not site.is_active:
+        if not site or not _site_reassignment_in_actor_scope(actor_worker, site):
             raise ManualTimeCorrectionError("manual_time_site_scope_denied")
         event.site_id = site.id
 
