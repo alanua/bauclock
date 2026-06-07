@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.services.time_ledger import calculate_time_ledger
 from db.models import EventType, TimeEvent
 
 
@@ -28,34 +29,8 @@ def calculate_day_work_break_minutes(
     *,
     now: datetime,
 ) -> tuple[int, int]:
-    work_minutes = 0
-    break_minutes = 0
-    active_start: datetime | None = None
-    pause_start: datetime | None = None
-
-    for event in events:
-        event_type = _event_type_value(event.event_type)
-        timestamp = event.timestamp
-        if event_type == EventType.CHECKIN.value:
-            active_start = timestamp
-            pause_start = None
-        elif event_type == EventType.PAUSE_START.value:
-            work_minutes += _minutes_between(active_start, timestamp)
-            active_start = None
-            pause_start = timestamp
-        elif event_type == EventType.PAUSE_END.value:
-            break_minutes += _minutes_between(pause_start, timestamp)
-            pause_start = None
-            active_start = timestamp
-        elif event_type == EventType.CHECKOUT.value:
-            work_minutes += _minutes_between(active_start, timestamp)
-            break_minutes += _minutes_between(pause_start, timestamp)
-            active_start = None
-            pause_start = None
-
-    work_minutes += _minutes_between(active_start, now)
-    break_minutes += _minutes_between(pause_start, now)
-    return work_minutes, break_minutes
+    ledger = calculate_time_ledger(events, now=now, strict=False)
+    return ledger.work_minutes, ledger.break_minutes
 
 
 def evaluate_arbzg_flags(
