@@ -97,6 +97,47 @@ async def seed_worker(
     return worker
 
 
+def test_accountant_cannot_apply_manual_time_correction():
+    async def run_test(session):
+        company = await seed_company(session, "accountant-denied")
+        site = await seed_site(session, company.id, "accountant-denied")
+        accountant = await seed_worker(
+            session,
+            company.id,
+            "accountant",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.ACCOUNTANT.value,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "worker", site_id=site.id)
+        original_timestamp = datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc)
+        event = TimeEvent(
+            worker_id=worker.id,
+            site_id=site.id,
+            event_type=EventType.CHECKIN,
+            timestamp=original_timestamp,
+        )
+        session.add(event)
+        await session.commit()
+
+        with pytest.raises(ManualTimeCorrectionError, match="manual_time_correction_denied"):
+            await apply_manual_time_correction(
+                session,
+                actor_worker=accountant,
+                event_id=event.id,
+                reason="Accountant correction",
+                new_timestamp=datetime(2026, 4, 21, 8, 15, tzinfo=timezone.utc),
+            )
+
+        unchanged = await session.get(TimeEvent, event.id)
+        assert unchanged.timestamp == original_timestamp
+        assert unchanged.is_manual is False
+        assert unchanged.corrected_by_worker_id is None
+        assert unchanged.correction_reason is None
+
+    run_db_test(run_test)
+
+
 def test_objektmanager_cannot_move_manual_correction_to_other_site():
     async def run_test(session):
         company = await seed_company(session, "manual-site-scope")
@@ -136,6 +177,49 @@ def test_objektmanager_cannot_move_manual_correction_to_other_site():
     run_db_test(run_test)
 
 
+def test_objektmanager_cannot_correct_other_site_worker_event():
+    async def run_test(session):
+        company = await seed_company(session, "objektmanager-worker-scope")
+        own_site = await seed_site(session, company.id, "own-worker-scope")
+        other_site = await seed_site(session, company.id, "other-worker-scope")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "objektmanager-worker-scope",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.OBJEKTMANAGER.value,
+            site_id=own_site.id,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "other-site-worker", site_id=other_site.id)
+        original_timestamp = datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc)
+        event = TimeEvent(
+            worker_id=worker.id,
+            site_id=other_site.id,
+            event_type=EventType.CHECKIN,
+            timestamp=original_timestamp,
+        )
+        session.add(event)
+        await session.commit()
+
+        with pytest.raises(ManualTimeCorrectionError, match="manual_time_scope_denied"):
+            await apply_manual_time_correction(
+                session,
+                actor_worker=manager,
+                event_id=event.id,
+                reason="Supervisor correction",
+                new_timestamp=datetime(2026, 4, 21, 8, 15, tzinfo=timezone.utc),
+            )
+
+        unchanged = await session.get(TimeEvent, event.id)
+        assert unchanged.timestamp == original_timestamp
+        assert unchanged.is_manual is False
+        assert unchanged.corrected_by_worker_id is None
+        assert unchanged.correction_reason is None
+
+    run_db_test(run_test)
+
+
 def test_company_owner_can_move_manual_correction_to_same_company_site():
     async def run_test(session):
         company = await seed_company(session, "manual-owner-site-scope")
@@ -171,5 +255,96 @@ def test_company_owner_can_move_manual_correction_to_same_company_site():
         assert corrected.is_manual is True
         assert corrected.corrected_by_worker_id == owner.id
         assert corrected.correction_reason == "Owner correction"
+
+    run_db_test(run_test)
+
+
+def test_company_owner_cannot_move_manual_correction_to_other_company_site():
+    async def run_test(session):
+        company = await seed_company(session, "owner-site-scope")
+        site = await seed_site(session, company.id, "owner-site-scope")
+        other_company = await seed_company(session, "owner-site-scope-other")
+        other_company_site = await seed_site(session, other_company.id, "other-company-site")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "owner-site-scope",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(session, company.id, "owner-site-scope-worker", site_id=site.id)
+        event = TimeEvent(
+            worker_id=worker.id,
+            site_id=site.id,
+            event_type=EventType.CHECKIN,
+            timestamp=datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+            is_manual=True,
+            corrected_by_worker_id=owner.id,
+            correction_reason="Original correction",
+        )
+        session.add(event)
+        await session.commit()
+
+        with pytest.raises(ManualTimeCorrectionError, match="manual_time_site_scope_denied"):
+            await apply_manual_time_correction(
+                session,
+                actor_worker=owner,
+                event_id=event.id,
+                reason="Owner correction",
+                new_site_id=other_company_site.id,
+            )
+
+        unchanged = await session.get(TimeEvent, event.id)
+        assert unchanged.site_id == site.id
+        assert unchanged.correction_reason == "Original correction"
+        assert unchanged.corrected_by_worker_id == owner.id
+
+    run_db_test(run_test)
+
+
+def test_company_owner_cannot_correct_other_company_worker_event():
+    async def run_test(session):
+        company = await seed_company(session, "owner-worker-scope")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "owner-worker-scope",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            time_tracking_enabled=False,
+        )
+        other_company = await seed_company(session, "owner-worker-scope-other")
+        other_site = await seed_site(session, other_company.id, "other-worker-site")
+        other_worker = await seed_worker(
+            session,
+            other_company.id,
+            "other-company-worker",
+            site_id=other_site.id,
+        )
+        original_timestamp = datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc)
+        event = TimeEvent(
+            worker_id=other_worker.id,
+            site_id=other_site.id,
+            event_type=EventType.CHECKIN,
+            timestamp=original_timestamp,
+        )
+        session.add(event)
+        await session.commit()
+
+        with pytest.raises(ManualTimeCorrectionError, match="manual_time_scope_denied"):
+            await apply_manual_time_correction(
+                session,
+                actor_worker=owner,
+                event_id=event.id,
+                reason="Owner correction",
+                new_timestamp=datetime(2026, 4, 21, 8, 15, tzinfo=timezone.utc),
+            )
+
+        unchanged = await session.get(TimeEvent, event.id)
+        assert unchanged.timestamp == original_timestamp
+        assert unchanged.is_manual is False
+        assert unchanged.corrected_by_worker_id is None
+        assert unchanged.correction_reason is None
 
     run_db_test(run_test)
