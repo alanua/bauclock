@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible BauClock defect
+title: "[bug] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include production employee data, credentials, tokens, encryption material, or other private records."
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: role_scope
+    attributes:
+      label: Role / company / site scope
+      description: Describe the role and scope involved using synthetic names only.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe reproduction with synthetic data.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Security / compliance impact
+      description: Note any access-control, correction, retention, ArbZG, audit, export, or privacy impact.
