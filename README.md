@@ -104,6 +104,12 @@ Access-control changes should include focused regression tests. Never use produc
 
 See [SECURITY.md](SECURITY.md).
 
+For a safe local verification path and deeper project context, see:
+
+- [docs/QUICKSTART.md](docs/QUICKSTART.md)
+- [docs/PROJECT_IMPACT.md](docs/PROJECT_IMPACT.md)
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+
 ## Maintainer workflow
 
 The project is actively maintained through issue triage, scoped pull requests, regression tests, CI-backed validation, and review before merge. AI tools such as Codex may assist with implementation, test generation, review, and maintenance automation, while the human maintainer remains responsible for final changes.
