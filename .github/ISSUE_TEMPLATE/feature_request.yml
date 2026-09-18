@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a focused BauClock improvement
+title: "[feature] "
+labels: []
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Construction workflow need
+      description: What user or maintainer problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful change and affected roles/sites.
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Data / access impact
+      description: Does this affect personal data, tenant isolation, manual corrections, exports, retention, or audit history?
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: What regression tests or migration checks should prove the behavior?
