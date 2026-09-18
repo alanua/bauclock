@@ -118,3 +118,7 @@ See:
 ## Project status
 
 BauClock is under active development. The public repository is suitable for development and review, but deployments should be treated as environment-specific and should not reuse example secrets or assume legal/compliance settings without local validation.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
