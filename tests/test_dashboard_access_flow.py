@@ -72,6 +72,7 @@ install_import_stubs()
 import api.routers.dashboard as dashboard_router
 from api.config import settings
 from api.services.dashboard_access import (
+    DASHBOARD_RESPONSE_HEADERS,
     DashboardAccessError,
     get_company_present_worker_ids,
     get_dashboard_worker,
@@ -107,6 +108,14 @@ class FakeRedis:
 
     async def get(self, key: str) -> str | None:
         return self.values.get(key)
+
+
+def assert_dashboard_no_cache_headers(headers) -> None:
+    assert headers["cache-control"] == DASHBOARD_RESPONSE_HEADERS["Cache-Control"]
+    assert "no-store" in headers["cache-control"]
+    assert "no-cache" in headers["cache-control"]
+    assert headers["pragma"] == "no-cache"
+    assert headers["expires"] == "0"
 
 
 def dashboard_token_payload(worker: Worker) -> str:
@@ -1204,6 +1213,7 @@ def test_dashboard_route_returns_shell_for_missing_token():
     )
     assert isinstance(response, FileResponse)
     assert response.path.endswith("api/static/dashboard.html")
+    assert_dashboard_no_cache_headers(response.headers)
 
 
 def test_dashboard_route_redirects_unversioned_shell():
@@ -1214,6 +1224,7 @@ def test_dashboard_route_redirects_unversioned_shell():
 
     assert isinstance(response, RedirectResponse)
     assert response.headers["location"] == f"/dashboard?v={dashboard_router.DASHBOARD_SHELL_VERSION}"
+    assert_dashboard_no_cache_headers(response.headers)
 
 
 def test_dashboard_route_preserves_legacy_token_on_version_redirect():
@@ -1233,6 +1244,15 @@ def test_dashboard_route_preserves_legacy_token_on_version_redirect():
     assert response.headers["location"] == (
         f"/dashboard?token=legacy-token&v={dashboard_router.DASHBOARD_SHELL_VERSION}"
     )
+    assert_dashboard_no_cache_headers(response.headers)
+
+
+def test_dashboard_data_uses_same_no_cache_header_contract():
+    assert DASHBOARD_RESPONSE_HEADERS == {
+        "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate, private",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
 
 
 def test_dashboard_data_route_returns_403_for_invalid_token(monkeypatch):
