@@ -361,6 +361,47 @@ def test_reject_request():
     run_db_test(run_test)
 
 
+def test_rejected_request_remains_traceable_to_worker_and_company():
+    async def run_test(session):
+        company = await seed_company(session, "reject-trace")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "manager",
+            can_view_dashboard=True,
+        )
+        worker = await seed_worker(session, company.id, "worker")
+        request = await create_request(
+            session,
+            creator_worker=worker,
+            text="  Rejected but traceable  ",
+            related_date=date(2026, 4, 12),
+        )
+
+        rejected = await reject_request(
+            session,
+            request_id=request.id,
+            manager_worker=manager,
+        )
+        worker_requests = await list_worker_requests(session, worker=worker)
+        company_requests = await list_company_requests(session, manager_worker=manager)
+
+        assert rejected.status == RequestStatus.REJECTED.value
+        assert rejected.created_by_worker_id == worker.id
+        assert rejected.target_worker_id == worker.id
+        assert rejected.company_id == company.id
+        assert rejected.text == "Rejected but traceable"
+        assert rejected.related_date == date(2026, 4, 12)
+        assert rejected.resolved_at is None
+        assert rejected.updated_at is not None
+        assert {stored.id for stored in worker_requests} == {request.id}
+        assert {stored.id for stored in company_requests} == {request.id}
+        assert worker_requests[0].status == RequestStatus.REJECTED.value
+        assert company_requests[0].status == RequestStatus.REJECTED.value
+
+    run_db_test(run_test)
+
+
 def test_reject_request_denies_cross_company_request_id():
     async def run_test(session):
         company = await seed_company(session, "reject-cross")
