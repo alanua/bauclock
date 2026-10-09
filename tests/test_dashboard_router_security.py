@@ -222,6 +222,21 @@ def test_dashboard_routes_reject_invalid_token(monkeypatch, route_name):
 
 
 @pytest.mark.parametrize("route_name", ["shell", "data"])
+@pytest.mark.parametrize("stored_payload", ["not-json", "{}", '{"worker_id": "nope", "company_id": 1}'])
+def test_dashboard_routes_reject_malformed_token_payloads(monkeypatch, route_name, stored_payload):
+    async def run_test(session):
+        token = f"{route_name}-malformed-token"
+        redis_values = {dashboard_token_key(token): stored_payload}
+
+        if route_name == "shell":
+            await _assert_shell_denied(monkeypatch, session, token=token, redis_values=redis_values)
+        else:
+            await _assert_data_denied(monkeypatch, session, token=token, redis_values=redis_values)
+
+    run_db_test(run_test)
+
+
+@pytest.mark.parametrize("route_name", ["shell", "data"])
 def test_dashboard_routes_reject_expired_token(monkeypatch, route_name):
     async def run_test(session):
         company = await seed_company(session, f"{route_name}-expired")
