@@ -95,17 +95,21 @@ install_import_stubs()
 
 from bot.handlers import admin as admin_handler
 from bot.handlers import chief as chief_handler
+from db.time_corrections import apply_manual_time_correction
 from db.models import (
+    AuditLog,
     Base,
     BillingType,
     Company,
     CompanyPublicProfile,
     EmploymentStatus,
     EmploymentType,
+    EventType,
     Payment,
     PaymentStatus,
     Site,
     SitePartnerCompany,
+    TimeEvent,
     Worker,
     WorkerAccessRole,
     WorkerType,
@@ -994,6 +998,190 @@ def test_accountant_cannot_change_access_role_through_people_editor():
         assert "Keine Berechtigung" in callback.message.edit_text.await_args.args[0]
 
     asyncio.run(run_test())
+
+
+def test_denied_rate_and_role_actions_do_not_create_success_audit_trace():
+    async def run_test(session):
+        company = Company(
+            name="Denied Audit Scope",
+            owner_telegram_id_enc="owner_denied_enc",
+            owner_telegram_id_hash=hash_string("owner-denied"),
+        )
+        session.add(company)
+        await session.flush()
+        accountant = Worker(
+            company_id=company.id,
+            telegram_id_enc="accountant_enc",
+            telegram_id_hash=hash_string("accountant"),
+            full_name_enc="Accountant",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.ACCOUNTANT.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        target = Worker(
+            company_id=company.id,
+            telegram_id_enc="target_enc",
+            telegram_id_hash=hash_string("target"),
+            full_name_enc="Target",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            hourly_rate=19,
+            access_role=WorkerAccessRole.WORKER.value,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        session.add_all([accountant, target])
+        await session.commit()
+
+        rate_state = FakeState()
+        await rate_state.update_data(edit_worker_id=target.id)
+        rate_message = FakeMessage("accountant")
+        rate_message.text = "25"
+        await admin_handler.process_new_rate(
+            message=rate_message,
+            state=rate_state,
+            session=session,
+            current_worker=accountant,
+            locale="de",
+        )
+
+        role_state = FakeState()
+        await role_state.update_data(people_edit_worker_id=target.id)
+        role_callback = SimpleNamespace(
+            data=f"people_role_{WorkerAccessRole.ACCOUNTANT.value}",
+            message=SimpleNamespace(edit_text=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        await chief_handler.update_people_role(
+            callback=role_callback,
+            state=role_state,
+            session=session,
+            current_worker=accountant,
+            locale="de",
+        )
+
+        await session.refresh(target)
+        audit_logs = (await session.execute(select(AuditLog))).scalars().all()
+        assert target.hourly_rate == 19
+        assert target.access_role == WorkerAccessRole.WORKER.value
+        assert target.can_view_dashboard is False
+        assert audit_logs == []
+        assert "Zugriff verweigert" in rate_message.answer.await_args.args[0]
+        assert "Keine Berechtigung" in role_callback.message.edit_text.await_args.args[0]
+
+    run_db_test(run_test)
+
+
+def test_authorized_manual_time_correction_records_state_transition():
+    async def run_test(session):
+        company = Company(
+            name="Manual Correction Scope",
+            owner_telegram_id_enc="owner_manual_enc",
+            owner_telegram_id_hash=hash_string("owner-manual"),
+        )
+        session.add(company)
+        await session.flush()
+        original_site = Site(
+            company_id=company.id,
+            name="Original Site",
+            qr_token="manual-original",
+            is_active=True,
+        )
+        corrected_site = Site(
+            company_id=company.id,
+            name="Corrected Site",
+            qr_token="manual-corrected",
+            is_active=True,
+        )
+        owner = Worker(
+            company_id=company.id,
+            telegram_id_enc="owner_manual_enc",
+            telegram_id_hash=hash_string("owner-manual"),
+            full_name_enc="Owner Manual",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        worker = Worker(
+            company_id=company.id,
+            telegram_id_enc="worker_manual_enc",
+            telegram_id_hash=hash_string("worker-manual"),
+            full_name_enc="Worker Manual",
+            worker_type=WorkerType.FESTANGESTELLT,
+            billing_type=BillingType.HOURLY,
+            access_role=WorkerAccessRole.WORKER.value,
+            can_view_dashboard=False,
+            time_tracking_enabled=True,
+            employment_type=EmploymentType.EMPLOYEE_FULL_TIME.value,
+            employment_status=EmploymentStatus.ACTIVE.value,
+            is_active=True,
+        )
+        session.add_all([original_site, corrected_site, owner, worker])
+        await session.flush()
+        original_timestamp = datetime(2026, 4, 10, 7, 0, tzinfo=timezone.utc)
+        corrected_timestamp = datetime(2026, 4, 10, 16, 30, tzinfo=timezone.utc)
+        event = TimeEvent(
+            worker_id=worker.id,
+            site_id=original_site.id,
+            event_type=EventType.CHECKIN,
+            timestamp=original_timestamp,
+            is_manual=False,
+        )
+        session.add(event)
+        await session.commit()
+
+        corrected = await apply_manual_time_correction(
+            session,
+            actor_worker=owner,
+            event_id=event.id,
+            reason="Documented supervisor correction",
+            new_timestamp=corrected_timestamp,
+            new_event_type=EventType.CHECKOUT,
+            new_site_id=corrected_site.id,
+        )
+
+        audit_log = (await session.execute(select(AuditLog))).scalar_one()
+        assert corrected.site_id == corrected_site.id
+        assert corrected.event_type == EventType.CHECKOUT
+        assert corrected.timestamp.replace(tzinfo=timezone.utc) == corrected_timestamp
+        assert corrected.is_manual is True
+        assert corrected.correction_reason == "Documented supervisor correction"
+        assert corrected.corrected_by_worker_id == owner.id
+        assert corrected.corrected_at is not None
+        assert audit_log.company_id == company.id
+        assert audit_log.performed_by_worker_id == owner.id
+        assert audit_log.entity_type == "time_event"
+        assert audit_log.entity_id == event.id
+        assert audit_log.action == "manual_time_correction"
+        assert audit_log.old_value["site_id"] == original_site.id
+        assert audit_log.old_value["event_type"] == EventType.CHECKIN.value
+        assert audit_log.old_value["timestamp"] == original_timestamp.isoformat()
+        assert audit_log.old_value["is_manual"] is False
+        assert audit_log.old_value["correction_reason"] is None
+        assert audit_log.old_value["corrected_by_worker_id"] is None
+        assert audit_log.old_value["corrected_at"] is None
+        assert audit_log.new_value["site_id"] == corrected_site.id
+        assert audit_log.new_value["event_type"] == EventType.CHECKOUT.value
+        assert audit_log.new_value["timestamp"] == corrected_timestamp.isoformat()
+        assert audit_log.new_value["is_manual"] is True
+        assert audit_log.new_value["correction_reason"] == "Documented supervisor correction"
+        assert audit_log.new_value["corrected_by_worker_id"] == owner.id
+        assert audit_log.new_value["corrected_at"] is not None
+
+    run_db_test(run_test)
 
 
 def test_owner_admin_history_does_not_cross_company_boundaries():
