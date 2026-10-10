@@ -32,7 +32,8 @@ install_import_stubs()
 import api.routers.dashboard as dashboard_views
 import api.routers.dashboard_router as secure_dashboard_router
 from db.dashboard_tokens import DASHBOARD_TOKEN_TTL_SECONDS, build_dashboard_token_payload, dashboard_token_key
-from db.models import Base, BillingType, Company, Worker, WorkerAccessRole, WorkerType
+from db.models import Base, BillingType, Company, RequestStatus, Site, Worker, WorkerAccessRole, WorkerType
+from db.request_service import create_request
 
 
 class FakeRedis:
@@ -80,9 +81,13 @@ async def seed_worker(
     is_active: bool = True,
     can_view_dashboard: bool = True,
     access_role: WorkerAccessRole = WorkerAccessRole.COMPANY_OWNER,
+    site_id: int | None = None,
+    created_by: int | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
+        site_id=site_id,
+        created_by=created_by,
         telegram_id_enc=f"telegram_enc_{suffix}",
         telegram_id_hash=f"telegram_hash_{suffix}",
         full_name_enc=f"name_enc_{suffix}",
@@ -96,6 +101,19 @@ async def seed_worker(
     session.add(worker)
     await session.flush()
     return worker
+
+
+async def seed_site(session, company_id: int, suffix: str) -> Site:
+    site = Site(
+        company_id=company_id,
+        name=f"Site {suffix}",
+        address=f"Address {suffix}",
+        qr_token=f"dashboard-router-site-token-{suffix}",
+        is_active=True,
+    )
+    session.add(site)
+    await session.flush()
+    return site
 
 
 def _dashboard_request(token: str | None):
@@ -132,6 +150,21 @@ async def _assert_data_denied(monkeypatch, session, *, token: str | None, redis_
 
     assert exc_info.value.status_code == 403
     delegate.assert_not_awaited()
+
+
+def _dashboard_token_for(worker: Worker) -> tuple[str, FakeRedis]:
+    token = f"dashboard-router-token-{worker.id}"
+    return (
+        token,
+        FakeRedis(
+            {
+                dashboard_token_key(token): build_dashboard_token_payload(
+                    worker_id=worker.id,
+                    company_id=worker.company_id,
+                )
+            }
+        ),
+    )
 
 
 def test_dashboard_shell_route_accepts_valid_token(monkeypatch):
@@ -200,12 +233,144 @@ def test_dashboard_data_route_accepts_valid_token(monkeypatch):
 
 
 @pytest.mark.parametrize("route_name", ["shell", "data"])
+def test_dashboard_routes_reject_worker_role_even_with_dashboard_flag(monkeypatch, route_name):
+    async def run_test(session):
+        company = await seed_company(session, f"{route_name}-worker-role")
+        owner = await seed_worker(session, company.id, f"{route_name}-owner")
+        worker = await seed_worker(
+            session,
+            company.id,
+            f"{route_name}-worker-role",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.WORKER,
+            created_by=owner.id,
+        )
+        await session.commit()
+
+        token, redis_client = _dashboard_token_for(worker)
+        if route_name == "shell":
+            await _assert_shell_denied(
+                monkeypatch,
+                session,
+                token=token,
+                redis_values=redis_client.values,
+            )
+        else:
+            await _assert_data_denied(
+                monkeypatch,
+                session,
+                token=token,
+                redis_values=redis_client.values,
+            )
+
+    run_db_test(run_test)
+
+
+@pytest.mark.parametrize("route_name", ["shell", "data"])
 def test_dashboard_routes_reject_missing_token(monkeypatch, route_name):
     async def run_test(session):
         if route_name == "shell":
             await _assert_shell_denied(monkeypatch, session, token=None, redis_values={})
         else:
             await _assert_data_denied(monkeypatch, session, token=None, redis_values={})
+
+    run_db_test(run_test)
+
+
+def test_dashboard_requests_rejects_unauthenticated_access_without_leaking_private_requests(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "requests-unauth")
+        worker = await seed_worker(session, company.id, "request-owner")
+        private_request = await create_request(
+            session,
+            creator_worker=worker,
+            text="Synthetic private payroll correction",
+        )
+        await session.commit()
+
+        monkeypatch.setattr(dashboard_views, "redis_client", FakeRedis({}))
+        monkeypatch.setattr(dashboard_views, "decrypt_string", lambda value: value)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await dashboard_views.dashboard_requests(token=None, telegram_init_data=None, db=session)
+
+        assert exc_info.value.status_code == 403
+        assert private_request.status == RequestStatus.OPEN.value
+
+    run_db_test(run_test)
+
+
+def test_dashboard_requests_do_not_leak_cross_company_private_requests(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "requests-company")
+        other_company = await seed_company(session, "requests-other-company")
+        manager = await seed_worker(session, company.id, "request-manager")
+        own_worker = await seed_worker(session, company.id, "own-request-worker")
+        other_worker = await seed_worker(session, other_company.id, "other-request-worker")
+        await create_request(
+            session,
+            creator_worker=own_worker,
+            text="Synthetic visible request",
+        )
+        other_request = await create_request(
+            session,
+            creator_worker=other_worker,
+            text="Synthetic cross-tenant private request",
+        )
+        await session.commit()
+
+        token, redis_client = _dashboard_token_for(manager)
+        monkeypatch.setattr(dashboard_views, "redis_client", redis_client)
+        monkeypatch.setattr(dashboard_views, "decrypt_string", lambda value: value)
+
+        response = await dashboard_views.dashboard_requests(token=token, db=session)
+
+        request_texts = {request["text"] for request in response["requests"]}
+        request_ids = {request["id"] for request in response["requests"]}
+        assert request_texts == {"Synthetic visible request"}
+        assert other_request.id not in request_ids
+        assert "Synthetic cross-tenant private request" not in request_texts
+
+    run_db_test(run_test)
+
+
+def test_dashboard_requests_do_not_leak_other_site_private_requests_to_objektmanager(monkeypatch):
+    async def run_test(session):
+        company = await seed_company(session, "requests-site")
+        own_site = await seed_site(session, company.id, "own")
+        other_site = await seed_site(session, company.id, "other")
+        manager = await seed_worker(
+            session,
+            company.id,
+            "site-manager",
+            site_id=own_site.id,
+            access_role=WorkerAccessRole.OBJEKTMANAGER,
+        )
+        own_worker = await seed_worker(session, company.id, "own-site-worker", site_id=own_site.id)
+        other_worker = await seed_worker(session, company.id, "other-site-worker", site_id=other_site.id)
+        await create_request(
+            session,
+            creator_worker=own_worker,
+            text="Synthetic own-site request",
+        )
+        other_request = await create_request(
+            session,
+            creator_worker=other_worker,
+            text="Synthetic other-site private request",
+        )
+        await session.commit()
+
+        token, redis_client = _dashboard_token_for(manager)
+        monkeypatch.setattr(dashboard_views, "redis_client", redis_client)
+        monkeypatch.setattr(dashboard_views, "decrypt_string", lambda value: value)
+
+        response = await dashboard_views.dashboard_requests(token=token, db=session)
+
+        request_texts = {request["text"] for request in response["requests"]}
+        request_ids = {request["id"] for request in response["requests"]}
+        assert request_texts == {"Synthetic own-site request"}
+        assert other_request.id not in request_ids
+        assert "Synthetic other-site private request" not in request_texts
 
     run_db_test(run_test)
 

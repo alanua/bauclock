@@ -11,6 +11,7 @@ from db.calendar_service import (
     create_calendar_event,
     deactivate_calendar_event,
     list_company_calendar_events,
+    list_worker_calendar_events,
 )
 from db.models import (
     Base,
@@ -73,10 +74,12 @@ async def seed_worker(
     can_view_dashboard: bool = False,
     site_id: int | None = None,
     access_role: str = WorkerAccessRole.WORKER.value,
+    created_by: int | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
         site_id=site_id,
+        created_by=created_by,
         telegram_id_enc=f"telegram_enc_{suffix}",
         telegram_id_hash=f"telegram_hash_{suffix}",
         full_name_enc=f"name_enc_{suffix}",
@@ -134,6 +137,96 @@ def test_calendar_access_denies_accountant_create_list_and_deactivate():
                 session,
                 event_id=event.id,
                 manager_worker=accountant,
+            )
+
+    run_db_test(run_test)
+
+
+def test_calendar_access_denies_unauthenticated_manager_operations():
+    async def run_test(session):
+        company = await seed_company(session, "unauth-calendar")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
+        worker = await seed_worker(session, company.id, "worker")
+        event = await create_calendar_event(
+            session,
+            manager_worker=owner,
+            worker_id=worker.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=date(2026, 6, 1),
+            date_to=date(2026, 6, 1),
+        )
+
+        with pytest.raises(CalendarAccessError, match="calendar_event_create_denied"):
+            await create_calendar_event(
+                session,
+                manager_worker=None,
+                worker_id=worker.id,
+                event_type=CalendarEventType.VACATION,
+                date_from=date(2026, 6, 2),
+                date_to=date(2026, 6, 2),
+            )
+        with pytest.raises(CalendarAccessError, match="company_calendar_events_denied"):
+            await list_company_calendar_events(session, manager_worker=None)
+        with pytest.raises(CalendarAccessError, match="calendar_event_deactivate_denied"):
+            await deactivate_calendar_event(
+                session,
+                event_id=event.id,
+                manager_worker=None,
+            )
+
+    run_db_test(run_test)
+
+
+def test_calendar_access_denies_worker_role_even_with_dashboard_flag():
+    async def run_test(session):
+        company = await seed_company(session, "worker-role-calendar")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
+        dashboard_worker = await seed_worker(
+            session,
+            company.id,
+            "dashboard-worker-role",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.WORKER.value,
+            created_by=owner.id,
+        )
+        target_worker = await seed_worker(session, company.id, "target-worker")
+        event = await create_calendar_event(
+            session,
+            manager_worker=owner,
+            worker_id=target_worker.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=date(2026, 6, 1),
+            date_to=date(2026, 6, 1),
+        )
+
+        with pytest.raises(CalendarAccessError, match="calendar_event_create_denied"):
+            await create_calendar_event(
+                session,
+                manager_worker=dashboard_worker,
+                worker_id=target_worker.id,
+                event_type=CalendarEventType.VACATION,
+                date_from=date(2026, 6, 2),
+                date_to=date(2026, 6, 2),
+            )
+        with pytest.raises(CalendarAccessError, match="company_calendar_events_denied"):
+            await list_company_calendar_events(session, manager_worker=dashboard_worker)
+        with pytest.raises(CalendarAccessError, match="calendar_event_deactivate_denied"):
+            await deactivate_calendar_event(
+                session,
+                event_id=event.id,
+                manager_worker=dashboard_worker,
             )
 
     run_db_test(run_test)
@@ -204,6 +297,118 @@ def test_objektmanager_calendar_denies_company_wide_and_other_site_targets():
             allowed_worker_event.id,
             allowed_site_event.id,
         }
+
+    run_db_test(run_test)
+
+
+def test_owner_calendar_denies_cross_company_deactivate():
+    async def run_test(session):
+        company = await seed_company(session, "owner-deactivate-calendar")
+        other_company = await seed_company(session, "other-deactivate-calendar")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
+        other_owner = await seed_worker(
+            session,
+            other_company.id,
+            "other-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
+        other_worker = await seed_worker(session, other_company.id, "other-worker")
+        other_event = await create_calendar_event(
+            session,
+            manager_worker=other_owner,
+            worker_id=other_worker.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=date(2026, 6, 1),
+            date_to=date(2026, 6, 1),
+        )
+
+        with pytest.raises(CalendarAccessError, match="calendar_event_not_found"):
+            await deactivate_calendar_event(
+                session,
+                event_id=other_event.id,
+                manager_worker=owner,
+            )
+
+        refreshed = await session.get(type(other_event), other_event.id)
+        assert refreshed.is_active is True
+
+    run_db_test(run_test)
+
+
+def test_worker_calendar_listing_does_not_leak_other_worker_or_cross_company_private_events():
+    async def run_test(session):
+        company = await seed_company(session, "worker-list-calendar")
+        other_company = await seed_company(session, "other-worker-list-calendar")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
+        other_owner = await seed_worker(
+            session,
+            other_company.id,
+            "other-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
+        worker = await seed_worker(session, company.id, "worker")
+        peer_worker = await seed_worker(session, company.id, "peer-worker")
+        other_worker = await seed_worker(session, other_company.id, "other-worker")
+
+        company_wide_event = await create_calendar_event(
+            session,
+            manager_worker=owner,
+            event_type=CalendarEventType.PUBLIC_HOLIDAY,
+            date_from=date(2026, 6, 1),
+            date_to=date(2026, 6, 1),
+            comment="Synthetic visible company event",
+        )
+        own_event = await create_calendar_event(
+            session,
+            manager_worker=owner,
+            worker_id=worker.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=date(2026, 6, 2),
+            date_to=date(2026, 6, 2),
+            comment="Synthetic visible worker event",
+        )
+        peer_event = await create_calendar_event(
+            session,
+            manager_worker=owner,
+            worker_id=peer_worker.id,
+            event_type=CalendarEventType.SICK_LEAVE,
+            date_from=date(2026, 6, 3),
+            date_to=date(2026, 6, 3),
+            comment="Synthetic peer private event",
+        )
+        other_company_event = await create_calendar_event(
+            session,
+            manager_worker=other_owner,
+            worker_id=other_worker.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=date(2026, 6, 4),
+            date_to=date(2026, 6, 4),
+            comment="Synthetic cross-tenant private event",
+        )
+
+        visible_events = await list_worker_calendar_events(session, worker=worker)
+
+        visible_ids = {event.id for event in visible_events}
+        visible_comments = {event.comment for event in visible_events}
+        assert visible_ids == {company_wide_event.id, own_event.id}
+        assert peer_event.id not in visible_ids
+        assert other_company_event.id not in visible_ids
+        assert "Synthetic peer private event" not in visible_comments
+        assert "Synthetic cross-tenant private event" not in visible_comments
 
     run_db_test(run_test)
 
