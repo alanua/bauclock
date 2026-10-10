@@ -74,10 +74,12 @@ async def seed_worker(
     can_view_dashboard: bool = False,
     site_id: int | None = None,
     access_role: str = WorkerAccessRole.WORKER.value,
+    created_by: int | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
         site_id=site_id,
+        created_by=created_by,
         telegram_id_enc=f"telegram_enc_{suffix}",
         telegram_id_hash=f"telegram_hash_{suffix}",
         full_name_enc=f"name_enc_{suffix}",
@@ -197,6 +199,7 @@ def test_calendar_access_denies_worker_role_even_with_dashboard_flag():
             "dashboard-worker-role",
             can_view_dashboard=True,
             access_role=WorkerAccessRole.WORKER.value,
+            created_by=owner.id,
         )
         target_worker = await seed_worker(session, company.id, "target-worker")
         event = await create_calendar_event(
