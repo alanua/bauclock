@@ -81,9 +81,11 @@ async def seed_worker(
     is_active: bool = True,
     can_view_dashboard: bool = True,
     access_role: WorkerAccessRole = WorkerAccessRole.COMPANY_OWNER,
+    site_id: int | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
+        site_id=site_id,
         telegram_id_enc=f"telegram_enc_{suffix}",
         telegram_id_hash=f"telegram_hash_{suffix}",
         full_name_enc=f"name_enc_{suffix}",
