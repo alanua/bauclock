@@ -82,10 +82,12 @@ async def seed_worker(
     can_view_dashboard: bool = True,
     access_role: WorkerAccessRole = WorkerAccessRole.COMPANY_OWNER,
     site_id: int | None = None,
+    created_by: int | None = None,
 ) -> Worker:
     worker = Worker(
         company_id=company_id,
         site_id=site_id,
+        created_by=created_by,
         telegram_id_enc=f"telegram_enc_{suffix}",
         telegram_id_hash=f"telegram_hash_{suffix}",
         full_name_enc=f"name_enc_{suffix}",
@@ -234,12 +236,14 @@ def test_dashboard_data_route_accepts_valid_token(monkeypatch):
 def test_dashboard_routes_reject_worker_role_even_with_dashboard_flag(monkeypatch, route_name):
     async def run_test(session):
         company = await seed_company(session, f"{route_name}-worker-role")
+        owner = await seed_worker(session, company.id, f"{route_name}-owner")
         worker = await seed_worker(
             session,
             company.id,
             f"{route_name}-worker-role",
             can_view_dashboard=True,
             access_role=WorkerAccessRole.WORKER,
+            created_by=owner.id,
         )
         await session.commit()
 
