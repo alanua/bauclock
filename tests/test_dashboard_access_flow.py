@@ -239,6 +239,58 @@ def test_get_dashboard_worker_valid_token():
     run_db_test(run_test)
 
 
+def test_get_dashboard_worker_denies_created_worker_with_dashboard_flag():
+    async def run_test(session):
+        company = await seed_company(session, "created-worker-dashboard")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "created-worker-dashboard-owner",
+            can_view_dashboard=True,
+            time_tracking_enabled=False,
+        )
+        worker = await seed_worker(
+            session,
+            company.id,
+            "created-worker-dashboard-worker",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.WORKER,
+        )
+        worker.created_by = owner.id
+        await session.commit()
+
+        token = "created-worker-dashboard-token"
+        redis_client = FakeRedis({dashboard_token_key(token): dashboard_token_payload(worker)})
+
+        with pytest.raises(DashboardAccessError, match="dashboard_access_denied"):
+            await get_dashboard_worker(token, session, redis_client)
+
+    run_db_test(run_test)
+
+
+def test_get_dashboard_worker_keeps_legacy_created_by_null_worker_compatibility():
+    async def run_test(session):
+        company = await seed_company(session, "legacy-worker-dashboard")
+        worker = await seed_worker(
+            session,
+            company.id,
+            "legacy-worker-dashboard",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.WORKER,
+        )
+        assert worker.created_by is None
+        await session.commit()
+
+        token = "legacy-worker-dashboard-token"
+        redis_client = FakeRedis({dashboard_token_key(token): dashboard_token_payload(worker)})
+
+        result = await get_dashboard_worker(token, session, redis_client)
+
+        assert result.id == worker.id
+
+    run_db_test(run_test)
+
+
 def test_get_dashboard_worker_missing_token():
     async def run_test(session):
         with pytest.raises(DashboardAccessError, match="missing_dashboard_token"):
