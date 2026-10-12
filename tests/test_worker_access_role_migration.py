@@ -38,6 +38,12 @@ def create_legacy_schema(connection) -> None:
     metadata.create_all(connection)
 
 
+def create_schema_with_access_role(connection) -> None:
+    create_legacy_schema(connection)
+    with Operations(MigrationContext.configure(connection)).batch_alter_table("workers") as batch_op:
+        batch_op.add_column(sa.Column("access_role", sa.String(length=32), nullable=True))
+
+
 def test_worker_access_role_migration_backfills_legacy_roles():
     engine = sa.create_engine("sqlite:///:memory:")
     try:
@@ -83,6 +89,53 @@ def test_worker_access_role_migration_backfills_legacy_roles():
             2: "subcontractor",
             3: "objektmanager",
             4: "worker",
+        }
+    finally:
+        engine.dispose()
+
+
+def test_worker_access_role_migration_preserves_explicit_worker_role():
+    engine = sa.create_engine("sqlite:///:memory:")
+    try:
+        with engine.begin() as connection:
+            create_schema_with_access_role(connection)
+            connection.execute(
+                sa.text(
+                    """
+                    INSERT INTO companies (id, name, owner_telegram_id_hash)
+                    VALUES (1, 'SEK', 'owner_hash')
+                    """
+                )
+            )
+            connection.execute(
+                sa.text(
+                    """
+                    INSERT INTO workers (
+                        id,
+                        company_id,
+                        telegram_id_hash,
+                        worker_type,
+                        can_view_dashboard,
+                        access_role
+                    )
+                    VALUES
+                        (1, 1, 'explicit_worker_hash', 'FESTANGESTELLT', 1, 'worker'),
+                        (2, 1, 'null_dashboard_hash', 'FESTANGESTELLT', 1, NULL)
+                    """
+                )
+            )
+
+            run_upgrade(connection)
+
+            roles = dict(
+                connection.execute(
+                    sa.text("SELECT id, access_role FROM workers ORDER BY id")
+                ).all()
+            )
+
+        assert roles == {
+            1: "worker",
+            2: "objektmanager",
         }
     finally:
         engine.dispose()

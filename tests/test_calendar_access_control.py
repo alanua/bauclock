@@ -139,6 +139,71 @@ def test_calendar_access_denies_accountant_create_list_and_deactivate():
     run_db_test(run_test)
 
 
+def test_accountant_calendar_denies_same_company_cross_site_worker_control():
+    async def run_test(session):
+        company = await seed_company(session, "accountant-cross-site-calendar")
+        source_site = await seed_site(session, company.id, "accountant-source")
+        target_site = await seed_site(session, company.id, "accountant-target")
+        owner = await seed_worker(
+            session,
+            company.id,
+            "cross-site-owner",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.COMPANY_OWNER.value,
+        )
+        accountant = await seed_worker(
+            session,
+            company.id,
+            "cross-site-accountant",
+            can_view_dashboard=True,
+            access_role=WorkerAccessRole.ACCOUNTANT.value,
+            site_id=source_site.id,
+        )
+        target_worker = await seed_worker(
+            session,
+            company.id,
+            "cross-site-worker",
+            site_id=target_site.id,
+        )
+        target_event = await create_calendar_event(
+            session,
+            manager_worker=owner,
+            worker_id=target_worker.id,
+            event_type=CalendarEventType.VACATION,
+            date_from=date(2026, 6, 6),
+            date_to=date(2026, 6, 6),
+        )
+
+        with pytest.raises(CalendarAccessError, match="calendar_event_create_denied"):
+            await create_calendar_event(
+                session,
+                manager_worker=accountant,
+                worker_id=target_worker.id,
+                event_type=CalendarEventType.VACATION,
+                date_from=date(2026, 6, 7),
+                date_to=date(2026, 6, 7),
+            )
+        with pytest.raises(CalendarAccessError, match="calendar_event_create_denied"):
+            await create_calendar_event(
+                session,
+                manager_worker=accountant,
+                site_id=target_site.id,
+                event_type=CalendarEventType.NON_WORKING_DAY,
+                date_from=date(2026, 6, 8),
+                date_to=date(2026, 6, 8),
+            )
+        with pytest.raises(CalendarAccessError, match="company_calendar_events_denied"):
+            await list_company_calendar_events(session, manager_worker=accountant)
+        with pytest.raises(CalendarAccessError, match="calendar_event_deactivate_denied"):
+            await deactivate_calendar_event(
+                session,
+                event_id=target_event.id,
+                manager_worker=accountant,
+            )
+
+    run_db_test(run_test)
+
+
 def test_objektmanager_calendar_denies_company_wide_and_other_site_targets():
     async def run_test(session):
         company = await seed_company(session, "objektmanager-calendar")
